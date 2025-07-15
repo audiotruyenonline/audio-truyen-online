@@ -1,11 +1,12 @@
 
 <!DOCTYPE html>
+
 <html lang="vi">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>📖 Nghe Truyện Audio</title>
-  <style>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>📖 Nghe Truyện Audio</title>
+<style>
     :root {
       --bg: #121212;
       --text: #ffffff;
@@ -56,19 +57,21 @@
     }
 
     .story-card {
-      background: #222;
-      border-radius: 10px;
-      padding: 8px;
-      cursor: pointer;
-      transition: transform 0.2s ease;
+  background: #222;
+  border-radius: 10px;
+  padding: 8px;
+  margin: 0 auto;          /* 👈 căn giữa khung */
+  max-width: 100px;        /* 👈 thu hẹp chiều rộng */
+  cursor: pointer;
+  transition: transform 0.2s ease;
 
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: flex-start;
-      text-align: center;
-      height: 100%;
-    }
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: center;
+  height: 100%;
+}
 
     .story-header {
       display: flex;
@@ -124,21 +127,22 @@
     }
 
     .audio-player .controls {
-      display: flex;
-      gap: 12px;
-      align-items: center;
-      flex-wrap: wrap;
-      margin-top: 8px;
-    }
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center; /* 👈 căn giữa hàng ngang */
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
 
     .audio-player button {
       background: #444;
       color: white;
       border: none;
-      padding: 6px 12px;
-      border-radius: 6px;
+      padding: 12px 20px;
+      border-radius: 12px;
       cursor: pointer;
-      font-size: 14px;
+      font-size: 22px;
     }
 
     .audio-player button:hover {
@@ -148,6 +152,20 @@
     .audio-player input[type="range"] {
       vertical-align: middle;
     }
+
+    .audio-player .progress-container {
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto 8px;
+}
+
+.audio-player #progressBar {
+  width: 100%;
+  height: 6px;
+  border-radius: 4px;
+  background: #555;
+  accent-color: #00e676; /* màu thanh khi kéo */
+}
 
     button.back-btn {
       margin-top: 20px;
@@ -208,7 +226,7 @@
     .story-info button {
       margin-top: 6px;
       padding: 6px 12px;
-      background: #f76da4;
+      background: #00bcd4;
       color: white;
       border: none;
       border-radius: 6px;
@@ -226,11 +244,6 @@
       color: #ccc;
     }
 
-    #storyList {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
-}
   
 .pagination button {
   padding: 6px 12px;
@@ -241,7 +254,7 @@
   cursor: pointer;
 }
 .pagination button.active {
-  background: #f76da4;
+  background: #00bcd4;
 }
 
 .support-admin {
@@ -256,7 +269,7 @@
 
 .support-admin h3 {
   margin-bottom: 10px;
-  color: #f76da4;
+  color: #00bcd4;
 }
 
 .support-admin .donate-buttons {
@@ -299,7 +312,7 @@
 }
 
 .footer-column h4 {
-  color: #f76da4;
+  color: #00bcd4;
   margin-bottom: 10px;
 }
 
@@ -315,525 +328,891 @@
   padding-bottom: 4px;
 }
 
+.fancy-border {
+  border: 2px solid #00bcd4;
+  border-radius: 16px;
+  padding: 16px;
+  background: linear-gradient(to bottom, #1b1b1b, #141414);
+  box-shadow: 0 4px 20px rgba(255, 118, 164, 0.2);
+  margin: 20px;
+}
+
+.story-title {
+  color: #00bcd4;
+  font-size: 22px;
+  text-align: center;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #444;
+  padding-bottom: 10px;
+}
+
+.story-card {
+  background: #222;
+  border-radius: 14px;
+  padding: 12px;
+  max-width: 180px;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  height: 100%;
+}
+.story-card:hover {
+  transform: scale(1.05);
+  box-shadow: 0 8px 16px rgba(0, 188, 212, 0.25);
+}
+.story-card img {
+  width: 100%;
+  height: 180px;
+  border-radius: 12px;
+  object-fit: cover;
+  margin-bottom: 10px;
+}
+.story-info h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #00e676;
+  height: 38px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.story-info .description-box {
+  font-size: 13px;
+  color: #bbb;
+  text-align: center;
+  line-height: 1.4;
+  max-height: 48px;
+  overflow: hidden;
+}
+#storyList {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  padding: 16px;
+}
+.story-container.fancy-border {
+  padding: 24px;
+  border-radius: 20px;
+  border: 2px solid #00bcd4;
+  background: linear-gradient(to bottom, #1b1b1b, #121212);
+}
+.story-title {
+  font-size: 24px;
+  font-weight: bold;
+  color: #00bcd4;
+  text-align: center;
+  padding-bottom: 12px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid #444;
+}
+
+
+# #storyList {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr); /* 👈 luôn 3 cột */
+  gap: 36px 20px; /* khoảng cách dọc - ngang */
+  padding: 16px;
+}
+.story-card {
+  background: #1e1e1e;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+}
+.story-card:hover {
+  transform: scale(1.03);
+  box-shadow: 0 6px 12px rgba(0,188,212,0.2);
+}
+.story-card img {
+  width: 100%;
+  height: 160px;
+  object-fit: cover;
+}
+.story-info {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.story-info h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #00e676;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.story-info p {
+  font-size: 13px;
+  color: #aaa;
+  margin: 0;
+}
+.tag {
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #333;
+  color: #00bcd4;
+  display: inline-block;
+  margin-top: 4px;
+}
+
+#storyList {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 16px;
+}
+
+.story-row {
+  display: flex;
+  background: #1e1e1e;
+  border-radius: 12px;
+  padding: 12px;
+  gap: 16px;
+  align-items: center;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+  transition: 0.2s ease;
+  cursor: pointer;
+}
+.story-row:hover {
+  transform: scale(1.02);
+}
+.story-thumb {
+  width: 100px;
+  height: 100px;
+  object-fit: cover;
+  border-radius: 10px;
+}
+.story-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.story-meta h3 {
+  font-size: 16px;
+  color: #00e676;
+  margin: 0;
+}
+.story-meta p {
+  margin: 0;
+  color: #bbb;
+  font-size: 14px;
+}
+
+.story-meta .description-box {
+  font-size: 13px;
+  color: #bbb;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;        /* 👈 Chỉ hiển thị 2 dòng */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-height: 44px;
+}
 </style>
 </head>
 <body>
-  <div id="sidebar">
-    <h2>📚 Menu</h2>
-    <ul>
-      <li onclick="showTab('home')">🏠 Trang chủ</li>
-      <li onclick="alert('Tính năng đang phát triển')">⭐ Tủ truyện</li>
-      <li onclick="alert('Tính năng đang phát triển')">⚙️ Cài đặt</li>
-      <li onclick="closeMenu()">✕ Đóng</li>
-    </ul>
-  </div>
-  <div id="overlay" onclick="closeMenu()"></div>
-
-  <header>
-    <button id="menuToggle">☰</button>
-    <input type="text" id="searchInput" placeholder="Tìm truyện..." />
-  </header>
-
-  <h2 style="margin: 16px 10px 0;">📚 Danh sách truyện</h2>
-  <div class="story-container">
-    <main>
-      <div id="storyListView" style="max-height: 60vh; overflow-y: auto; padding-right: 6px;">
-        <div id="storyList"></div>
-<div class="pagination" id="pagination" style="margin-top: 20px; display: flex; justify-content: center; gap: 10px;"></div>
-      </div>
-      <div id="storyDetailView" style="display: none;"></div>
-    </main>
-  </div>
+<div id="sidebar">
+<h2>📚 Menu</h2>
+<ul>
+<li onclick="showTab('home')">⌂ Trang chủ</li>
+<li onclick="closeMenu()">✕ Đóng</li>
+</ul>
+</div>
+<div id="overlay" onclick="closeMenu()"></div>
+<header>
+<button id="menuToggle">☰</button>
+<h1 style="font-size: 20px; margin: 0;">☯︎  Audio Truyện Online</h1>
+</header>
+<marquee scrollamount="6" style="background: #00bcd4; color: white; padding: 10px; font-weight: bold;">
+  🎉 Truyện mới "Đấu Phá Thương Khung" vừa cập nhật! ▶️ Bấm vào để nghe ngay!
+</marquee>
+<div class="story-container fancy-border">
+<h2 class="story-title">≛ Toàn Bộ Truyện</h2>
+<div style="padding: 10px; display: flex; gap: 10px;">
+<input id="searchInput" placeholder="✎  Tìm truyện..." style="flex: 1; padding: 8px 12px; font-size: 16px; border-radius: 6px; border: none; outline: none; background: #222; color: white;" type="text"/>
+<select id="genreSelect" style="padding: 8px 12px; font-size: 16px; border-radius: 6px; border: none; background: #222; color: white;">
+<option value="all"> Tất cả</option>
+<option value="ma"> Truyện Ma</option>
+<option value="ngan"> Truyện Ngắn</option>
+<option value="cuoi"> Truyện Cười</option>
+</select>
+</div>
+<main>
+<div id="storyListView" style="max-height: 60vh; overflow-y: auto; padding-right: 6px;">
+<div id="storyList"></div>
+</div>
+<div id="storyDetailView" style="display: none;"></div>
+</main>
+</div>
+<!-- Quảng bá kênh YouTube -->
+<div class="support-admin">
+<h3>📺 Ủng hộ Kênh YouTube</h3>
+<p style="font-size: 15px; color: #ccc; line-height: 1.6;">
+    Bạn yêu thích những câu chuyện tại đây? Hãy ghé thăm và <strong style="color: #00bcd4;">đăng ký kênh YouTube</strong> của chúng tôi để:
+  </p>
+<ul style="text-align: left; max-width: 500px; margin: 10px auto; font-size: 14px; color: #bbb; padding-left: 20px; line-height: 1.5;">
+<li> Nhận thông báo truyện mới mỗi ngày</li>
+<li> Góp phần tăng view và phát triển cộng đồng</li>
+</ul>
+<div class="donate-buttons" style="margin-top: 14px;">
+<a href="https://youtube.com/@rinaudio-05?si=QYET-mEOlRktFRzc " target="_blank">
+<button style="background: #e53935;">🔥 Truy cập Kênh YouTube</button>
+</a>
+<a href="https://youtube.com/@rinaudio-05?si=QYET-mEOlRktFRzc?sub_confirmation=1" target="_blank">
+<button style="background: #43a047;"> Đăng ký Ngay</button>
+</a>
+</div>
+</div>
 <!-- Ủng hộ admin -->
 <div class="support-admin">
-  <h3>💖 Ủng hộ Admin</h3>
-  <p>Nếu bạn thấy website hữu ích, hãy ủng hộ admin để có thêm động lực duy trì và phát triển nhé!</p>
-  <div class="donate-buttons">
-    <a href="https://me.momo.vn/QDI7Tos6UBCVF8fQTDsdux/oQeZ8RNn4WYvbpZ" target="_blank">
-      <button>📱 Ủng hộ qua MoMo</button>
-    </a>
-  </div>
+<h3>💖 Ủng hộ Admin</h3>
+<p>Nếu bạn thấy website hữu ích, hãy ủng hộ admin để có thêm động lực duy trì và phát triển nhé!</p>
+<div class="donate-buttons">
+<a href="https://me.momo.vn/QDI7Tos6UBCVF8fQTDsdux/oQeZ8RNn4WYvbpZ" target="_blank">
+<button>📱 Ủng hộ qua MoMo</button>
+</a>
 </div>
-
+</div>
 <!-- Footer chuyên nghiệp -->
 <div class="footer">
-  <div class="footer-column">
-    <img src="https://i.imgur.com/zsdcZ9M.png" alt="Logo" style="width: 80px; margin-bottom: 10px;">
-    <p>AudioTruyenTNT có nhiều thể loại khác nhau, từ truyện cổ tích, kiếm hiệp, ma, ngôn tình đến xuyên không, đồng nhân, hệ thống...</p>
-  </div>
-  <div class="footer-column">
-    <h4>📊 Thể Loại Đồng Nhân</h4>
-    <ul>
-      <li>Đồng nhân Onepiece</li>
-      <li>Đồng nhân Hokage</li>
-      <li>Đồng nhân Đấu La</li>
-      <li>Đồng nhân Marvel</li>
-    </ul>
-  </div>
-  <div class="footer-column">
-    <h4>🎤 Giọng đọc nổi bật</h4>
-    <ul>
-      <li>Quảng A Tũn</li>
-      <li>Nguyễn Huy</li>
-      <li>Đình Soạn</li>
-      <li>MC Tiến Phong</li>
-    </ul>
-  </div>
-  <div class="footer-column">
-    <h4>📈 Thống kê truy cập</h4>
-    <ul>
-      <li>Online: 1</li>
-      <li>Hôm nay: 39</li>
-      <li>Hôm qua: 56</li>
-      <li>Tổng: 6.564</li>
-    </ul>
-  </div>
+<div class="footer-column">
+<img alt="Logo" src="https://i.imgur.com/zsdcZ9M.png" style="width: 80px; margin-bottom: 10px;"/>
+<p>AudioTruyenTNT có nhiều thể loại khác nhau, từ truyện cổ tích, kiếm hiệp, ma, ngôn tình đến xuyên không, đồng nhân, hệ thống...</p>
+</div>
+<div class="footer-column">
+<h4>📊 Thể Loại Đồng Nhân</h4>
+<ul>
+<li>Đồng nhân Onepiece</li>
+<li>Đồng nhân Hokage</li>
+<li>Đồng nhân Đấu La</li>
+<li>Đồng nhân Marvel</li>
+</ul>
+</div>
+<div class="footer-column">
+<h4>🎤 Giọng đọc nổi bật</h4>
+<ul>
+<li>Mỹ Nhân</li>
+<li>Ngọc Bích</li>
+<li>Đình Soạn</li>
+<li>MC Tiến Phong</li>
+</ul>
+</div>
+<div class="footer-column">
+<h4>📈 Thống kê truy cập</h4>
+<ul>
+<li>Online: 109</li>
+<li>Hôm nay: 619</li>
+<li>Hôm qua: 536</li>
+<li>Tổng: 6.564</li>
+</ul>
+</div>
 </div>
 <div class="footer-bottom" style="text-align:center; color:#bbb; font-size:13px; margin-top: 16px;">
   © Copyright 2025 - AudioTruyenTNT. All rights reserved.
 </div>
-  <script>
+<script>
     const stories = [
-      {
-        id: "1",
-        title: "Đêm Khuya Kể Chuyện Ma",
-        description: "Tổng hợp các chuyện ma rùng rợn kể lúc nửa đêm.",
-        cover: "https://picsum.photos/seed/truyen1/300/300",
-        chapters: [
-          { title: "Tập 1: Bóng Đêm", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" },
-          { title: "Tập 2: Người Đàn Bà Mặc Đỏ", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3" }
-        ]
-      },
-      {
-        id: "2",
-        title: "Truyện Ngắn Ý Nghĩa",
-        description: "Những câu chuyện đời thường đầy tính nhân văn.",
-        cover: "https://picsum.photos/seed/truyen2/300/300",
-        chapters: [
-          { title: "Tập 1: Hạt giống tâm hồn", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3" }
-        ]
-      },
-      {
-        id: "3",
-        title: "Truyện Cười Dân Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "4",
-        title: "Lươn lẹo",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "5",
-        title: "Truyện Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "6",
-        title: "Truyện iao",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "7",
-        title: "Truyện Cakabs",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "8",
-        title: "Truyện Cưn",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "9",
-        title: "Truyện Cườian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "10",
-        title: "Truyện Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "11",
-        title: "Tru Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "12",
-        title: "Truyian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "13",
-        title: "Truyện CGian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "14",
-        title: "Truyện Cn",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "15",
-        title: "Truyện Cười Dân Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "16",
-        title: "Truyện Cười Dân Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "17",
-        title: "Truyện Cười Dân Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "18",
-        title: "Truyện Cười Dân Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "19",
-        title: "Truyện Cười Dân Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "20",
-        title: "Truyện Cười Dân Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "21",
-        title: "Truyện Cười Dân Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "22",
-        title: "Truyện Cười Dân Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "23",
-        title: "Truyện Cười Dân Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "24",
-        title: "Truyện Cười Dân Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "25",
-        title: "Truyện Cười Dân Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "26",
-        title: "Truyện Cười Dân Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "27",
-        title: "Truyện Cười Dân Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "28",
-        title: "Truyện Cười Dân Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "29",
-        title: "Truyện Cười Dân Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      },
-      {
-        id: "30",
-        title: "Truyện Cười Dân Gian",
-        description: "Những mẩu chuyện vui giải trí, hài hước.",
-        cover: "https://picsum.photos/seed/truyen3/300/300",
-        chapters: [
-          { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
-          { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }
-        ]
-      }
+      {  
+    id: "1",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Trong thế giới huyền bí nơi con người chung sống với linh hồn và ác quỷ, một cậu bé mang trong mình bí ẩn về nguồn gốc sức mạnh thần bí bắt đầu hành trình tìm lại ký ức đã mất. Trên đường đi, cậu gặp những người bạn đồng hành đặc biệt, đối mặt với các thế lực bóng tối và phát hiện ra sự thật kinh hoàng đằng sau cuộc chiến giữa thiện và ác kéo dài hàng thế kỷ.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "2",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Trong thế giới huyền bí nơi con người chung sống với linh hồn và ác quỷ, một cậu bé mang trong mình bí ẩn về nguồn gốc sức mạnh thần bí bắt đầu hành trình tìm lại ký ức đã mất. Trên đường đi, cậu gặp những người bạn đồng hành đặc biệt, đối mặt với các thế lực bóng tối và phát hiện ra sự thật kinh hoàng đằng sau cuộc chiến giữa thiện và ác kéo dài hàng thế kỷ. ",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "3",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "4",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "5",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "6",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "7",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "8",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "9",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "10",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "11",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "12",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "13",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "14",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "15",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "16",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "17",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "18",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "19",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "20",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "21",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "22",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "23",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "24",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "25",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "26",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "27",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "28",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "29",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  },
+{  
+    id: "30",  
+    title: "Truyện Cười Dân Gian",  
+    genre: "ma",  
+    description: "Những mẩu chuyện vui giải trí, hài hước.",  
+    cover: "https://picsum.photos/seed/truyen3/300/300",  
+    chapters: [  
+      { title: "Tập 1: Bác Ba Phi", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },  
+      { title: "Tập 2: Lý thông – Thạch Sanh", audio: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" }  
+    ]  
+  } 
+
     ];
 
-    const storyListEl = document.getElementById('storyList');
-    const searchInput = document.getElementById('searchInput');
-    const menuToggle = document.getElementById('menuToggle');
-    const sidebar = document.getElementById('sidebar');
-    const overlay = document.getElementById('overlay');
 
-    let currentIndex = 0;
-    const storiesPerLoad = 5;
-    let filteredStories = stories;
+const storyListEl = document.getElementById('storyList');
+const searchInput = document.getElementById('searchInput');
+const menuToggle = document.getElementById('menuToggle');
+const sidebar = document.getElementById('sidebar');
+const overlay = document.getElementById('overlay');
+const genreSelect = document.getElementById('genreSelect');
 
-    menuToggle.addEventListener('click', () => {
-      sidebar.classList.add('active');
-      overlay.classList.add('active');
-    });
+let filteredStories = stories;
 
-    function closeMenu() {
-      sidebar.classList.remove('active');
-      overlay.classList.remove('active');
-    }
+menuToggle.addEventListener('click', () => {
+  sidebar.classList.add('active');
+  overlay.classList.add('active');
+});
 
-        function openPlayer(story) {
-      closeMenu();
-      document.getElementById('storyListView').style.display = 'none';
-      const detailView = document.getElementById('storyDetailView');
-      detailView.style.display = 'block';
+overlay.addEventListener('click', closeMenu);
 
-      const firstChapter = story.chapters[0];
-const saved = JSON.parse(localStorage.getItem('audioStatus') || '{}');
-
-let chapterToPlay = story.chapters[0];
-if (saved.audioSrc && story.chapters.some(ch => ch.audio === saved.audioSrc)) {
-  chapterToPlay = story.chapters.find(ch => ch.audio === saved.audioSrc);
+function closeMenu() {
+  sidebar.classList.remove('active');
+  overlay.classList.remove('active');
 }
-const audioTitle = chapterToPlay.title;
 
-      detailView.innerHTML = `
-  <h2>${story.title}</h2>
-  <img src="${story.cover}" style="width: 100%; max-height: 200px; object-fit: cover; border-radius: 8px;" />
-  <div style="margin-top: 10px; font-size: 14px; color: #ccc;">${story.description}</div>
-  <div class="audio-player" style="margin-top: 10px;">
-  <p style="margin-bottom: 8px; color: #f76da4;">
-    🎧 Đang phát: <span id="currentChapterTitle">${audioTitle}</span>
-  </p>
-  <audio id="audioPlayer" src="${chapterToPlay.audio}"></audio>
-  <input type="range" id="progressBar" value="0" step="1" min="0" max="100" style="width: 100%; margin: 6px 0;">
-  <div style="font-size: 13px; color: #aaa;">
-    ⏱ <span id="currentTime">00:00</span> / <span id="duration">00:00</span>
-  </div>
-  <div class="controls">
-            <button id="rewindBtn">⏪ 10s</button>
-            <button id="playPauseBtn">▶️</button>
-            <button id="forwardBtn">10s ⏩</button>
-            <label>
-              🔊 Tốc độ:
-              <input type="range" id="speedSlider" min="0.5" max="5" step="0.1" value="1">
-              <span id="speedValue">1.0x</span>
-            </label>
-          </div>
-        </div>
-        <div id="chapterList" style="margin-top: 16px;">
-          <h3>🎧 Danh sách tập:</h3>
-          <ul style="padding-left: 20px; margin-top: 6px;" id="chapterUl">
-            ${story.chapters.map((ch, index) =>
-              `<li style="margin-bottom: 8px; cursor: pointer; color: #f76da4;" onclick="playChapter('${ch.audio}', this)">
-                ${ch.title}
-              </li>`).join('')}
-          </ul>
-        </div>
-        <button class="back-btn" onclick="backToList()">🔙 Quay lại</button>
-      `;
+function openPlayer(story) {
+  closeMenu();
+  document.getElementById('storyListView').style.display = 'none';
+  const detailView = document.getElementById('storyDetailView');
+  detailView.style.display = 'block';
 
-      setTimeout(() => {
-        const audio = document.getElementById('audioPlayer');
-        const playBtn = document.getElementById('playPauseBtn');
-        const rewindBtn = document.getElementById('rewindBtn');
-        const forwardBtn = document.getElementById('forwardBtn');
-        const speedSlider = document.getElementById('speedSlider');
-const progressBar = document.getElementById('progressBar');
-const currentTimeDisplay = document.getElementById('currentTime');
-const durationDisplay = document.getElementById('duration');
-// Lưu trạng thái khi rời khỏi web
-window.addEventListener('beforeunload', () => {
+  const saved = JSON.parse(localStorage.getItem('audioStatus') || '{}');
+  let chapterToPlay = story.chapters[0];
+
+  if (saved.audioSrc && story.chapters.some(ch => ch.audio === saved.audioSrc)) {
+    chapterToPlay = story.chapters.find(ch => ch.audio === saved.audioSrc);
+  }
+
+  const audioTitle = chapterToPlay.title;
+
+  // Nếu có dữ liệu nghe cũ và cùng tập, tạo hộp resume
+  const resumeBox = (saved.audioSrc === chapterToPlay.audio && saved.currentTime > 5)
+    ? `
+      <div id="resumeBox" style="margin-top: 20px; background: #003300; color: white; padding: 10px 16px; border-radius: 12px; text-align: center;">
+        🔁 Bạn đã nghe đến <strong>${formatTime(saved.currentTime)}</strong> ở tập <strong>${saved.chapterTitle}</strong><br/>
+        <button onclick="resumeAudio()" style="margin-top: 8px; background: #00c853; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer;">
+          ▶️ Nghe tiếp từ ${formatTime(saved.currentTime)}
+        </button>
+      </div>` : '';
+
+  detailView.innerHTML = `
+    <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+      <img src="${story.cover}" style="width: 140px; height: 140px; object-fit: cover; border-radius: 12px;" />
+      <div style="flex: 1; min-width: 220px;">
+        <h2 style="color: #00bcd4;">${story.title}</h2>
+        <p><strong>📁 Thể loại:</strong> ${story.genre || 'Không rõ'}</p>
+        <p><strong>📊 Trạng thái:</strong> <span style="color: #00e676;">Đang cập nhật</span></p>
+        <p><strong>🎧 Số tập:</strong> ${story.chapters.length}</p>
+        <p style="font-size: 14px; color: #ccc;">${story.description}</p>
+      </div>
+    </div>
+
+    <div class="audio-player" style="margin-top: 20px;">
+      <p style="color: #00bcd4;">🎧 Đang phát: <span id="currentChapterTitle">${audioTitle}</span></p>
+      <audio id="audioPlayer" src="${chapterToPlay.audio}"></audio>
+      <div class="progress-container">
+        <input type="range" id="progressBar" value="0" step="1" min="0" max="100">
+      </div>
+      <div style="display: flex; justify-content: space-between; font-size: 13px; color: #aaa; max-width: 600px; margin: 0 auto;">
+        <span id="currentTime">00:00</span>
+        <span id="duration">00:00</span>
+      </div>
+      <div class="controls">
+        <button id="rewindBtn">⏮︎ 10s</button>
+        <button id="playPauseBtn">▶︎</button>
+        <button id="forwardBtn">10s ⏭︎</button>
+        <label>
+          🔊 Tốc độ:
+          <input type="range" id="speedSlider" min="0.5" max="3" step="0.1" value="1" />
+          <span id="speedValue">1.0x</span>
+        </label>
+      </div>
+    </div>
+
+    ${resumeBox}
+
+    <div id="chapterList" style="margin-top: 20px;">
+      <h3 style="color: #00bcd4;">📚 Danh sách tập:</h3>
+      <ul id="chapterUl">
+        ${story.chapters.map((ch, i) => `
+          <li onclick="playChapter('${ch.audio}', this)" style="cursor:pointer; color:#00bcd4; margin-bottom: 6px;">
+            ${ch.title}
+          </li>`).join('')}
+      </ul>
+    </div>
+
+    <button class="back-btn" onclick="backToList()">⌫ Quay lại</button>
+  `;
+
+  setupAudioPlayer(story, chapterToPlay);
+}
+
+function setupAudioPlayer(story, currentChapter) {
   const audio = document.getElementById('audioPlayer');
-  const currentChapterTitle = document.getElementById('currentChapterTitle')?.textContent || '';
-  const speed = audio.playbackRate;
-  const currentTime = audio.currentTime;
-  const src = audio.src;
-// Cập nhật thanh tiến trình + thời gian
-audio.addEventListener('timeupdate', () => {
-  const current = audio.currentTime;
-  const total = audio.duration;
+  const playBtn = document.getElementById('playPauseBtn');
+  const rewindBtn = document.getElementById('rewindBtn');
+  const forwardBtn = document.getElementById('forwardBtn');
+  const speedSlider = document.getElementById('speedSlider');
+  const progressBar = document.getElementById('progressBar');
+  const currentTimeDisplay = document.getElementById('currentTime');
+  const durationDisplay = document.getElementById('duration');
+  const currentChapterTitleEl = document.getElementById('currentChapterTitle');
 
-  progressBar.value = (current / total) * 100 || 0;
-  currentTimeDisplay.textContent = formatTime(current);
-  durationDisplay.textContent = isNaN(total) ? '00:00' : formatTime(total);
-});
+  const saved = JSON.parse(localStorage.getItem('audioStatus') || '{}');
+  if (saved.audioSrc === audio.src) {
+    audio.currentTime = saved.currentTime || 0;
+    audio.playbackRate = saved.speed || 1;
+    speedSlider.value = saved.speed || 1;
+    document.getElementById('speedValue').textContent = `${audio.playbackRate.toFixed(1)}x`;
+  }
 
-// Cho phép kéo thanh tiến trình
-progressBar.addEventListener('input', () => {
-  audio.currentTime = (progressBar.value / 100) * audio.duration;
-});
+  audio.addEventListener('timeupdate', () => {
+    if (!audio.duration) return;
+    progressBar.value = (audio.currentTime / audio.duration) * 100;
+    currentTimeDisplay.textContent = formatTime(audio.currentTime);
+    durationDisplay.textContent = isNaN(audio.duration) ? '00:00' : formatTime(audio.duration);
+  });
 
-// Hàm định dạng thời gian
-function formatTime(t) {
-  const m = Math.floor(t / 60);
-  const s = Math.floor(t % 60);
-  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  progressBar.addEventListener('input', () => {
+    audio.currentTime = (progressBar.value / 100) * audio.duration;
+  });
+
+  playBtn.onclick = () => {
+    if (audio.paused) {
+      audio.play();
+      playBtn.textContent = '◼︎';
+    } else {
+      audio.pause();
+      playBtn.textContent = '▶︎';
+    }
+  };
+
+  rewindBtn.onclick = () => { audio.currentTime -= 10; };
+  forwardBtn.onclick = () => { audio.currentTime += 10; };
+
+  speedSlider.oninput = () => {
+  const rate = parseFloat(speedSlider.value);
+  audio.playbackRate = rate;
+  document.getElementById('speedValue').textContent = rate.toFixed(1) + 'x';
+
+  // ✅ Lưu lại tốc độ vào localStorage
+  const saved = JSON.parse(localStorage.getItem('audioStatus') || '{}');
+  saved.speed = rate;
+  localStorage.setItem('audioStatus', JSON.stringify(saved));
+};
+
+  audio.onended = () => {
+    const idx = story.chapters.findIndex(ch => ch.audio === audio.src);
+    const next = story.chapters[idx + 1];
+    if (next) {
+      playChapter(next.audio, document.querySelectorAll('#chapterUl li')[idx + 1]);
+    }
+  };
+
+  window.onbeforeunload = () => {
+    localStorage.setItem('audioStatus', JSON.stringify({
+      chapterTitle: currentChapterTitleEl?.textContent || '',
+      audioSrc: audio.src,
+      speed: audio.playbackRate,
+      currentTime: audio.currentTime
+    }));
+  };
 }
 
-// Nếu có trạng thái đã lưu, khôi phục
-if (saved.audioSrc === chapterToPlay.audio) {
-  audio.currentTime = saved.currentTime || 0;
-  audio.playbackRate = saved.speed || 1;
-  speedSlider.value = saved.speed || 1;
-  document.getElementById('speedValue').textContent = audio.playbackRate.toFixed(1) + 'x';
-  document.getElementById('currentChapterTitle').textContent = saved.chapterTitle || audioTitle;
-}
+function playChapter(audioURL, element) {
+  const audio = document.getElementById('audioPlayer');
+  const playBtn = document.getElementById('playPauseBtn');
+  const speedSlider = document.getElementById('speedSlider');
+  const speedValue = document.getElementById('speedValue');
+
+  const saved = JSON.parse(localStorage.getItem('audioStatus') || '{}');
+  const rate = saved.speed || 1;
+
+  audio.src = audioURL;
+  audio.playbackRate = rate;
+  speedSlider.value = rate;
+  speedValue.textContent = rate.toFixed(1) + 'x';
+
+  audio.currentTime = 0;
+  audio.play().then(() => {
+    playBtn.textContent = '◼︎ ';
+  });
+
+  document.getElementById('currentChapterTitle').textContent = element.textContent;
+
+  const allItems = document.querySelectorAll('#chapterUl li');
+  allItems.forEach(li => li.style.fontWeight = 'normal');
+  element.style.fontWeight = 'bold';
 
   localStorage.setItem('audioStatus', JSON.stringify({
-    chapterTitle: currentChapterTitle,
-    audioSrc: src,
-    speed: speed,
-    currentTime: currentTime
+    chapterTitle: element.textContent,
+    audioSrc: audioURL,
+    speed: rate,
+    currentTime: 0
   }));
-});
+}
 
-audio.addEventListener('timeupdate', () => {
-  const current = audio.currentTime;
-  const total = audio.duration;
+function backToList() {
+  document.getElementById('storyDetailView').style.display = 'none';
+  document.getElementById('storyListView').style.display = 'block';
+  renderStories(filteredStories);
+}
 
-  progressBar.value = (current / total) * 100 || 0;
+function getProgressText(story) {
+  const saved = JSON.parse(localStorage.getItem('audioStatus') || '{}');
+  if (!saved.audioSrc || !saved.chapterTitle || saved.currentTime == null) return '';
 
-  currentTimeDisplay.textContent = formatTime(current);
-  durationDisplay.textContent = isNaN(total) ? '00:00' : formatTime(total);
-});
+  const hasChapter = story.chapters.some(ch => ch.audio === saved.audioSrc);
+  if (!hasChapter) return '';
 
-progressBar.addEventListener('input', () => {
-  audio.currentTime = (progressBar.value / 100) * audio.duration;
-});
+  return `📌 Đã nghe đến: ${saved.chapterTitle} (${formatTime(saved.currentTime)})`;
+}
+
+function renderStories(storyList) {
+  storyListEl.innerHTML = '';
+  storyList.forEach(story => {
+    const card = document.createElement('div');
+    card.className = 'story-row';
+    card.onclick = () => openPlayer(story);
+    const progressText = getProgressText(story);
+
+card.innerHTML = `
+  <img src="${story.cover}" class="story-thumb" alt="${story.title}" />
+  <div class="story-meta">
+    <h3>${story.title}</h3>
+    <p>📊 Còn tiếp – ${story.genre}</p>
+    <p>🎧 ${story.chapters.length} tập</p>
+    <div class="description-box">${story.description}</div>
+    ${progressText ? `<p style="color:#00e676; font-size:13px;">${progressText}</p>` : ''}
+  </div>`;
+    storyListEl.appendChild(card);
+  });
+}
+
+
+function applyFilters() {
+  const keyword = searchInput.value.toLowerCase();
+  const selectedGenre = genreSelect.value;
+
+  filteredStories = stories.filter(story => {
+    const matchTitle = story.title.toLowerCase().includes(keyword);
+    const matchGenre = selectedGenre === 'all' || story.genre === selectedGenre;
+    return matchTitle && matchGenre;
+  });
+
+  renderStories(filteredStories);
+}
+
+searchInput.addEventListener('input', applyFilters);
+genreSelect.addEventListener('change', applyFilters);
 
 function formatTime(time) {
   const minutes = Math.floor(time / 60);
@@ -841,190 +1220,25 @@ function formatTime(time) {
   return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
-        playBtn.addEventListener('click', () => {
-          if (audio.paused) {
-            audio.play();
-            playBtn.textContent = '⏸';
-          } else {
-            audio.pause();
-            playBtn.textContent = '▶️';
-          }
-        });
-
-        rewindBtn.addEventListener('click', () => {
-          audio.currentTime -= 10;
-        });
-
-        forwardBtn.addEventListener('click', () => {
-          audio.currentTime += 10;
-        });
-
-        speedSlider.addEventListener('input', () => {
-          const rate = parseFloat(speedSlider.value);
-          audio.playbackRate = rate;
-          document.getElementById('speedValue').textContent = rate.toFixed(1) + 'x';
-        });
-      }, 100);
-    }
-
-    function playChapter(audioURL, element) {
-  const audio = document.getElementById('audioPlayer');
-  audio.src = audioURL;
-  audio.play();
-  document.getElementById('playPauseBtn').textContent = '⏸';
-
-  document.getElementById('currentChapterTitle').textContent = element.textContent;
-
-  const allItems = document.querySelectorAll('#chapterUl li');
-  allItems.forEach(li => li.style.fontWeight = 'normal');
-  element.style.fontWeight = 'bold';
-// Ghi lại trạng thái mới vào localStorage
-localStorage.setItem('audioStatus', JSON.stringify({
-  chapterTitle: element.textContent,
-  audioSrc: audioURL,
-  speed: audio.playbackRate,
-  currentTime: 0
-}));
-}
-
-    function backToList() {
-      document.getElementById('storyDetailView').style.display = 'none';
-      document.getElementById('storyListView').style.display = 'block';
-      
-let currentPage = 1;
-const storiesPerPage = 30;
-
-function renderPage(storyList) {
-  const start = (currentPage - 1) * storiesPerPage;
-  const end = start + storiesPerPage;
-  const paginatedStories = storyList.slice(start, end);
-  storyListEl.innerHTML = '';
-
-  paginatedStories.forEach(story => {
-    const card = document.createElement('div');
-    card.className = 'story-card';
-    card.onclick = () => openPlayer(story);
-    card.innerHTML = `
-      <div class="story-header">
-        <img src="${story.cover}" alt="${story.title}" />
-        <div class="story-info">
-          <h3>${story.title}</h3>
-          <p>📑 ${story.chapters.length} tập</p>
-        </div>
-      </div>
-    `;
-    storyListEl.appendChild(card);
-  });
-
-  renderPagination(storyList);
-}
-
-function renderPagination(storyList) {
-  const pageCount = Math.ceil(storyList.length / storiesPerPage);
-  const paginationEl = document.getElementById('pagination');
-  paginationEl.innerHTML = '';
-
-  for (let i = 1; i <= pageCount; i++) {
-    const btn = document.createElement('button');
-    btn.textContent = i;
-    btn.className = (i === currentPage) ? 'active' : '';
-    btn.onclick = () => {
-      currentPage = i;
-      renderPage(filteredStories);
-    };
-    paginationEl.appendChild(btn);
-  }
-}
-
-init();
-    }
-
-    function showTab(tab) {
-      closeMenu();
-      if (tab === 'home') {
-        backToList();
-      }
-    }
-
-    
-searchInput.addEventListener('input', () => {
-  const keyword = searchInput.value.toLowerCase();
-  filteredStories = stories.filter(s => s.title.toLowerCase().includes(keyword));
-  currentPage = 1;
-renderPage(filteredStories);
-    });
-
-    
-
-    
 function init() {
   filteredStories = stories;
-  storyListEl.innerHTML = '';
-  filteredStories.forEach(story => {
-    const card = document.createElement('div');
-    card.className = 'story-card';
-    card.onclick = () => openPlayer(story);
-    card.innerHTML = `
-      <div class="story-header">
-        <img src="${story.cover}" alt="${story.title}" />
-        <div class="story-info">
-          <h3>${story.title}</h3>
-          <p>📑 ${story.chapters.length} tập</p>
-        </div>
-      </div>
-    `;
-    storyListEl.appendChild(card);
-  });
-}
-
-
-    
-let currentPage = 1;
-const storiesPerPage = 30;
-
-function renderPage(storyList) {
-  const start = (currentPage - 1) * storiesPerPage;
-  const end = start + storiesPerPage;
-  const paginatedStories = storyList.slice(start, end);
-  storyListEl.innerHTML = '';
-
-  paginatedStories.forEach(story => {
-    const card = document.createElement('div');
-    card.className = 'story-card';
-    card.onclick = () => openPlayer(story);
-    card.innerHTML = `
-      <div class="story-header">
-        <img src="${story.cover}" alt="${story.title}" />
-        <div class="story-info">
-          <h3>${story.title}</h3>
-          <p>📑 ${story.chapters.length} tập</p>
-        </div>
-      </div>
-    `;
-    storyListEl.appendChild(card);
-  });
-
-  renderPagination(storyList);
-}
-
-function renderPagination(storyList) {
-  const pageCount = Math.ceil(storyList.length / storiesPerPage);
-  const paginationEl = document.getElementById('pagination');
-  paginationEl.innerHTML = '';
-
-  for (let i = 1; i <= pageCount; i++) {
-    const btn = document.createElement('button');
-    btn.textContent = i;
-    btn.className = (i === currentPage) ? 'active' : '';
-    btn.onclick = () => {
-      currentPage = i;
-      renderPage(filteredStories);
-    };
-    paginationEl.appendChild(btn);
-  }
+  renderStories(filteredStories);
 }
 
 init();
-  </script>
+
+function resumeAudio() {
+  const saved = JSON.parse(localStorage.getItem('audioStatus') || '{}');
+  const audio = document.getElementById('audioPlayer');
+  const playBtn = document.getElementById('playPauseBtn');
+
+  if (audio && saved.audioSrc === audio.src) {
+    audio.currentTime = saved.currentTime || 0;
+    audio.play().then(() => {
+      playBtn.textContent = '◼︎ ';
+    });
+  }
+}
+</script>
 </body>
 </html>
