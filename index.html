@@ -632,6 +632,7 @@
   id: "1",
   title: "Fairy tail: Khắc kim liền có thể trở nên mạnh mẽ",
   genre: "Đồng Nhân",
+  status: "Đã full",
   description: "Trình Phong xuyên đến thế giới Fairy Tail. Hắn mang theo hệ thống rút thẻ – có tiền là có thể học ma pháp, triệu hồi sức mạnh. Chỉ cần đúng lúc rút thẻ mạnh, hắc long cũng phải khuất phục.",
   cover: "https://dl.dropbox.com/scl/fi/rtsr1336n77sqsiu7f9bq/p2o67a5aae10a58c76ae0f7209587d664eb.png?rlkey=t8retech9xvo3041l8bf8aoy6&dl=1",
   chapters: [
@@ -696,7 +697,7 @@ function openPlayer(story) {
       <div style="flex: 1; min-width: 220px;">
         <h2 style="color: #00bcd4;">${story.title}</h2>
         <p><strong>📁 Thể loại:</strong> ${story.genre || 'Không rõ'}</p>
-        <p><strong>📊 Trạng thái:</strong> <span style="color: #00e676;">Đang cập nhật</span></p>
+        <p><strong>📊 Trạng thái:</strong> <span style="color: " + getStatusColor(story.status) + "; "> ${story.status || "Đang cập nhật"}</span></p>
         <p><strong>🎧 Số tập:</strong> ${story.chapters.length}</p>
         <p style="font-size: 14px; color: #ccc;">${story.description}</p>
       </div>
@@ -863,6 +864,16 @@ function getProgressText(story) {
   return `📌 Đã nghe đến: ${saved.chapterTitle} (${formatTime(saved.currentTime)})`;
 }
 
+
+function getStatusColor(status) {
+  switch ((status || "").toLowerCase()) {
+    case "đã full": return "#00e676";
+    case "tạm dừng": return "#ff9800";
+    case "drop": return "#f44336";
+    default: return "#00bcd4"; // Đang cập nhật
+  }
+}
+
 function renderStories(storyList) {
   storyListEl.innerHTML = '';
   storyList.forEach(story => {
@@ -875,7 +886,7 @@ card.innerHTML = `
   <img src="${story.cover}" class="story-thumb" alt="${story.title}" />
   <div class="story-meta">
     <h3>${story.title}</h3>
-    <p>📊 Còn tiếp – ${story.genre}</p>
+    <p>📊 ${story.status || "Đang cập nhật"} – ${story.genre}</p>
     <p>🎧 ${story.chapters.length} tập</p>
     <div class="description-box">${story.description}</div>
     ${progressText ? `<p style="color:#00e676; font-size:13px;">${progressText}</p>` : ''}
