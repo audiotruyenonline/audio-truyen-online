@@ -9130,11 +9130,10 @@ margin-right:0 !important;
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
   <script id="tdn-firebase-config-safe-placeholder">
-    /* Firebase compat config - tách 2 luồng rõ ràng, không dùng import module, không dùng Storage. */
+    /* Firebase compat config - 2 luồng thật: MAIN = số liệu nhẹ, STORY = nội dung truyện. */
     (function initTdnDualFirebaseFlows(){
       'use strict';
 
-      /* LUỒNG CHÍNH: chỉ dùng cho dữ liệu nhẹ thay đổi liên tục. */
       var MAIN_CONFIG = {
         apiKey: "AIzaSyBMJK0dbtZ_Ko_9b3nrxkaev3Tle0XAK1o",
         authDomain: "online1-557e7.firebaseapp.com",
@@ -9145,7 +9144,6 @@ margin-right:0 !important;
         appId: "1:359900501760:web:6c324577aab3a38d6a05e5"
       };
 
-      /* LUỒNG TRUYỆN: chỉ dùng cho nội dung truyện đang chạy hiện tại. */
       var STORY_CONFIG = {
         apiKey: "AIzaSyCCZOofRQctJFvKg8l3RWoahXmR_5CELC8",
         authDomain: "khotruyen1-266ac.firebaseapp.com",
@@ -9156,12 +9154,12 @@ margin-right:0 !important;
       };
 
       var MAIN_COLLECTIONS = {
-        storyCounters: 'storyCounters',       // tổng lượt xem / đánh dấu / đánh giá / cảm xúc theo từng truyện
-        storyViewStats: 'storyViewStats',     // lượt xem theo ngày để tính ngày / tuần / tháng
-        readerActions: 'readerActions',       // chống cộng trùng theo thiết bị
-        siteStats: 'siteStats',               // thống kê toàn web
-        rankingCache: 'rankingCache',         // dữ liệu nhẹ cho bảng xếp hạng
-        siteVisitors: 'site_visitors'         // tổng người dùng / lượt truy cập admin đang dùng
+        storyCounters: 'storyCounters',
+        storyViewStats: 'storyViewStats',
+        readerActions: 'readerActions',
+        siteStats: 'siteStats',
+        rankingCache: 'rankingCache',
+        siteVisitors: 'site_visitors'
       };
 
       var STORY_COLLECTIONS = {
@@ -9172,25 +9170,17 @@ margin-right:0 !important;
         latestUpdates: 'latestUpdates'
       };
 
-      window.MAIN_FIREBASE_SHARDS = {
-        main_01: {config: MAIN_CONFIG, enabled: true, role: 'main-counters', collections: MAIN_COLLECTIONS}
-      };
-      window.STORY_FIREBASE_SHARDS = {
-        story_01: {config: STORY_CONFIG, enabled: true, role: 'story-content', collections: STORY_COLLECTIONS}
-      };
+      window.MAIN_FIREBASE_SHARDS = {main_01:{config:MAIN_CONFIG, enabled:true, role:'main-counters', collections:MAIN_COLLECTIONS}};
+      window.STORY_FIREBASE_SHARDS = {story_01:{config:STORY_CONFIG, enabled:true, role:'story-content', collections:STORY_COLLECTIONS}};
       window.TDN_MAIN_FIREBASE_CONFIG = MAIN_CONFIG;
       window.TDN_STORY_FIREBASE_CONFIG = STORY_CONFIG;
       window.TDN_MAIN_COLLECTIONS = MAIN_COLLECTIONS;
       window.TDN_STORY_COLLECTIONS = STORY_COLLECTIONS;
       window.AUTH_FIREBASE_CONFIG = window.AUTH_FIREBASE_CONFIG || MAIN_CONFIG;
-      window.TDN_FIREBASE_CONFIG = STORY_CONFIG; // alias cũ: mọi dữ liệu truyện vẫn đi qua luồng truyện
+      window.TDN_FIREBASE_CONFIG = STORY_CONFIG;
 
-      function appByName(name){
-        try{ return window.firebase.app(name); }catch(error){ return null; }
-      }
-      function hasDefaultApp(){
-        try{ return !!(window.firebase && window.firebase.apps && window.firebase.apps.length); }catch(error){ return false; }
-      }
+      function appByName(name){ try{ return window.firebase.app(name); }catch(error){ return null; } }
+      function hasDefaultApp(){ try{ return !!(window.firebase && window.firebase.apps && window.firebase.apps.length); }catch(error){ return false; } }
       function initDefaultMainApp(){
         if(!window.firebase || typeof window.firebase.initializeApp !== 'function') return null;
         var app = appByName('[DEFAULT]');
@@ -9204,7 +9194,7 @@ margin-right:0 !important;
       }
       function dbFromApp(app){
         if(!app || !window.firebase || typeof window.firebase.firestore !== 'function') return null;
-        try{ return window.firebase.firestore(app); }catch(error){ return app.firestore ? app.firestore() : null; }
+        try{ return window.firebase.firestore(app); }catch(error){ try{ return app.firestore(); }catch(inner){ return null; } }
       }
       function getMainDb(){
         try{
@@ -9219,164 +9209,100 @@ margin-right:0 !important;
           if(window.TDN_STORY_FIRESTORE_DB) return window.TDN_STORY_FIRESTORE_DB;
           window.TDN_STORY_APP = initNamedStoryApp();
           window.TDN_STORY_FIRESTORE_DB = dbFromApp(window.TDN_STORY_APP);
-          window.TDN_FIRESTORE_DB = window.TDN_STORY_FIRESTORE_DB; // alias cũ = luồng truyện
+          window.TDN_FIRESTORE_DB = window.TDN_STORY_FIRESTORE_DB;
           return window.TDN_STORY_FIRESTORE_DB;
         }catch(error){ console.warn('Không mở được Firebase luồng truyện:', error); return null; }
       }
-      function serverTimestamp(){
-        try{ return window.firebase.firestore.FieldValue.serverTimestamp(); }catch(error){ return new Date().toISOString(); }
-      }
-      function increment(value){
-        try{ return window.firebase.firestore.FieldValue.increment(Number(value) || 0); }catch(error){ return Number(value) || 0; }
-      }
-      function clampNumber(value, min, max){
-        var n = Number(value);
-        if(!Number.isFinite(n)) n = 0;
-        return Math.max(min, Math.min(max, n));
-      }
-      function safeText(value){
-        return String(value == null ? '' : value).trim();
-      }
+      function serverTimestamp(){ try{ return window.firebase.firestore.FieldValue.serverTimestamp(); }catch(error){ return new Date(); } }
+      function increment(value){ try{ return window.firebase.firestore.FieldValue.increment(Number(value) || 0); }catch(error){ return Number(value) || 0; } }
+      function clampNumber(value, min, max){ var n = Number(value); if(!Number.isFinite(n)) n = 0; return Math.max(min, Math.min(max, n)); }
+      function safeText(value){ return String(value == null ? '' : value).trim(); }
       function slugDocId(value){
         var raw = safeText(value) || 'unknown';
         try{ return encodeURIComponent(raw).replace(/%/g, '_'); }catch(error){ return raw.replace(/[\/#[\]?*]/g, '_'); }
       }
       function pad2(value){ return String(value).padStart(2, '0'); }
-      function dateKey(date){
-        var d = date || new Date();
-        return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
-      }
-      function monthKey(date){
-        var d = date || new Date();
-        return d.getFullYear() + '-' + pad2(d.getMonth() + 1);
-      }
-      function weekKey(date){
-        var d = new Date((date || new Date()).getTime());
-        d.setHours(0,0,0,0);
-        d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
-        var week1 = new Date(d.getFullYear(), 0, 4);
-        var week = 1 + Math.round(((d - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
-        return d.getFullYear() + '-W' + pad2(week);
-      }
+      function dateKey(date){ var d = date || new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
       function storyKey(story){
-        return safeText(story && (story.storyId || story.id || story.slug || story.key || story.title));
+        return safeText(story && (story.storyId || story.id || story.slug || story.key || story.title || story.name));
       }
       function getDeviceId(){
         var key = 'tdn_main_device_id_v2';
         try{
           var current = localStorage.getItem(key);
           if(current) return current;
-          current = (window.crypto && typeof window.crypto.randomUUID === 'function')
-            ? window.crypto.randomUUID()
-            : ('device-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12));
+          current = (window.crypto && typeof window.crypto.randomUUID === 'function') ? window.crypto.randomUUID() : ('device-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12));
           localStorage.setItem(key, current);
           return current;
-        }catch(error){
-          return 'device-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
-        }
+        }catch(error){ return 'device-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12); }
       }
-      function counterRef(storyOrId){
-        var id = typeof storyOrId === 'string' ? safeText(storyOrId) : storyKey(storyOrId);
-        var db = getMainDb();
-        return (db && id) ? db.collection(MAIN_COLLECTIONS.storyCounters).doc(slugDocId(id)) : null;
-      }
-      function viewStatRef(storyOrId, date){
-        var id = typeof storyOrId === 'string' ? safeText(storyOrId) : storyKey(storyOrId);
-        var db = getMainDb();
-        var day = dateKey(date || new Date());
-        return (db && id) ? db.collection(MAIN_COLLECTIONS.storyViewStats).doc(slugDocId(id) + '_' + day) : null;
-      }
-      function readerActionRef(storyOrId){
-        var id = typeof storyOrId === 'string' ? safeText(storyOrId) : storyKey(storyOrId);
-        var db = getMainDb();
-        return (db && id) ? db.collection(MAIN_COLLECTIONS.readerActions).doc(slugDocId(getDeviceId() + '_' + id)) : null;
-      }
-      function siteStatsRef(){
-        var db = getMainDb();
-        return db ? db.collection(MAIN_COLLECTIONS.siteStats).doc('global') : null;
-      }
-      function rankingRef(storyOrId){
-        var id = typeof storyOrId === 'string' ? safeText(storyOrId) : storyKey(storyOrId);
-        var db = getMainDb();
-        return (db && id) ? db.collection(MAIN_COLLECTIONS.rankingCache).doc(slugDocId(id)) : null;
-      }
-      function baseStoryMeta(story){
-        var title = safeText(story && (story.title || story.name || story.short));
-        var cover = safeText(story && (story.coverUrl || story.cover || story.imageUrl || story.image || story.thumbnail));
-        return {
-          storyId: storyKey(story),
-          title: title,
-          titleLower: title.toLowerCase(),
-          coverUrl: cover,
-          mainShardId: 'main_01',
-          storyShardId: 'story_01',
-          updatedAt: serverTimestamp(),
-          updatedAtMs: Date.now()
-        };
-      }
-      function normalizeReactionKey(key){
-        key = safeText(key).toLowerCase();
-        if(key === 'funny' || key === 'hai' || key === 'hài') return 'laugh';
-        if(key === 'sad' || key === 'buon' || key === 'buồn') return 'cry';
-        if(key === 'bad' || key === 'te' || key === 'tệ') return 'angry';
-        if(key === 'like' || key === 'thich' || key === 'thích') return 'like';
-        return key;
-      }
+      function counterRef(storyOrId){ var id = typeof storyOrId === 'string' ? safeText(storyOrId) : storyKey(storyOrId); var db = getMainDb(); return (db && id) ? db.collection(MAIN_COLLECTIONS.storyCounters).doc(slugDocId(id)) : null; }
+      function viewStatRef(storyOrId, date){ var id = typeof storyOrId === 'string' ? safeText(storyOrId) : storyKey(storyOrId); var db = getMainDb(); return (db && id) ? db.collection(MAIN_COLLECTIONS.storyViewStats).doc(slugDocId(id) + '_' + dateKey(date || new Date())) : null; }
+      function readerActionRef(storyOrId){ var id = typeof storyOrId === 'string' ? safeText(storyOrId) : storyKey(storyOrId); var db = getMainDb(); return (db && id) ? db.collection(MAIN_COLLECTIONS.readerActions).doc(slugDocId(getDeviceId() + '_' + id)) : null; }
+      function siteStatsRef(){ var db = getMainDb(); return db ? db.collection(MAIN_COLLECTIONS.siteStats).doc('global') : null; }
+      function rankingRef(type){ var db = getMainDb(); return db ? db.collection(MAIN_COLLECTIONS.rankingCache).doc(slugDocId(type || 'global')) : null; }
+
       function writeMerge(ref, data){
         if(!ref || !data) return Promise.resolve(false);
-        return ref.set(data, {merge:true}).then(function(){ return true; }).catch(function(error){
-          console.warn('Không ghi được luồng chính:', error);
-          return false;
-        });
+        return ref.set(data, {merge:true}).then(function(){ return true; }).catch(function(error){ console.warn('Không ghi được luồng chính:', error); return false; });
       }
       function writeMainBatch(items){
         var db = getMainDb();
         var valid = (items || []).filter(function(item){ return item && item.ref && item.data; });
         if(!db || !valid.length) return Promise.resolve(false);
         try{
-          if(typeof db.batch === 'function'){
-            var batch = db.batch();
-            valid.forEach(function(item){ batch.set(item.ref, item.data, {merge:true}); });
-            return batch.commit().then(function(){ return true; }).catch(function(error){
-              console.warn('Không commit được batch luồng chính:', error);
-              return Promise.all(valid.map(function(item){ return writeMerge(item.ref, item.data); })).then(function(){ return false; });
-            });
-          }
-        }catch(error){}
-        return Promise.all(valid.map(function(item){ return writeMerge(item.ref, item.data); })).then(function(){ return true; });
+          var batch = db.batch();
+          valid.forEach(function(item){ batch.set(item.ref, item.data, {merge:true}); });
+          return batch.commit().then(function(){ return true; }).catch(function(error){
+            console.warn('Batch luồng chính bị từ chối, ghi lẻ từng mục:', error);
+            return Promise.all(valid.map(function(item){ return writeMerge(item.ref, item.data); })).then(function(){ return false; });
+          });
+        }catch(error){
+          return Promise.all(valid.map(function(item){ return writeMerge(item.ref, item.data); })).then(function(){ return true; });
+        }
+      }
+
+      function normalizeReactionKey(key){
+        key = safeText(key).toLowerCase();
+        if(key === 'laugh' || key === 'funny' || key === 'hai' || key === 'hài') return 'funny';
+        if(key === 'cry' || key === 'sad' || key === 'buon' || key === 'buồn') return 'sad';
+        if(key === 'angry' || key === 'bad' || key === 'te' || key === 'tệ') return 'bad';
+        if(key === 'like' || key === 'thich' || key === 'thích') return 'like';
+        return key;
+      }
+      function uiReactionKey(key){
+        key = normalizeReactionKey(key);
+        if(key === 'funny') return 'laugh';
+        if(key === 'sad') return 'cry';
+        if(key === 'bad') return 'angry';
+        return key;
+      }
+      function readReactionCountsFromCounter(data){
+        var source = (data && data.reactions) || {};
+        return {
+          like: Number(source.like || data.reactionLike || 0) || 0,
+          laugh: Number(source.funny || source.laugh || data.reactionLaugh || 0) || 0,
+          cry: Number(source.sad || source.cry || data.reactionCry || 0) || 0,
+          angry: Number(source.bad || source.angry || data.reactionAngry || 0) || 0
+        };
       }
       function mergeCounterToStory(story, data){
         if(!story || !data) return story;
-        var views = Math.max(Number(story.views || story.viewCount || story.totalViews || 0) || 0, Number(data.viewsTotal || data.views || data.viewCount || 0) || 0);
-        var week = Math.max(Number(story.viewsWeek || story.weekViews || 0) || 0, Number(data.viewsWeek || data.weekViews || 0) || 0);
-        var month = Math.max(Number(story.viewsMonth || story.monthViews || 0) || 0, Number(data.viewsMonth || data.monthViews || 0) || 0);
-        var bookmarks = Math.max(Number(story.bookmarks || story.bookmarkCount || story.savedCount || 0) || 0, Number(data.bookmarksTotal || data.bookmarks || data.bookmarkCount || data.savedCount || 0) || 0);
-        var ratings = Math.max(Number(story.ratingCount || story.ratings || story.reviews || story.reviewCount || 0) || 0, Number(data.ratingCount || data.ratings || data.reviewCount || 0) || 0);
-        if(views){ story.views = views; story.viewCount = views; story.totalViews = views; }
-        if(week){ story.viewsWeek = week; story.weekViews = week; }
-        if(month){ story.viewsMonth = month; story.monthViews = month; }
-        if(bookmarks){ story.bookmarks = bookmarks; story.bookmarkCount = bookmarks; story.savedCount = bookmarks; }
-        if(ratings){ story.ratingCount = ratings; story.ratings = ratings; story.reviews = ratings; story.reviewCount = ratings; }
-        if(data.ratingAvg || data.avgRating){ story.ratingAvg = Number(data.ratingAvg || data.avgRating) || 0; }
-        var sourceReactions = data.reactions || {};
-        var reactions = {
-          like: Math.max(Number(sourceReactions.like || 0) || 0, Number(data.reactionLike || 0) || 0),
-          laugh: Math.max(Number(sourceReactions.laugh || sourceReactions.funny || 0) || 0, Number(data.reactionLaugh || 0) || 0),
-          cry: Math.max(Number(sourceReactions.cry || sourceReactions.sad || 0) || 0, Number(data.reactionCry || 0) || 0),
-          angry: Math.max(Number(sourceReactions.angry || sourceReactions.bad || 0) || 0, Number(data.reactionAngry || 0) || 0)
-        };
+        var views = Number(data.viewsTotal || 0) || 0;
+        var bookmarks = Number(data.bookmarksTotal || 0) || 0;
+        var ratingCount = Number(data.ratingCount || 0) || 0;
+        var ratingTotal = Number(data.ratingTotal || 0) || 0;
+        story.views = views; story.viewCount = views; story.totalViews = views;
+        story.bookmarks = bookmarks; story.bookmarkCount = bookmarks; story.savedCount = bookmarks;
+        story.ratingCount = ratingCount; story.ratings = ratingCount; story.reviews = ratingCount; story.reviewCount = ratingCount;
+        story.ratingTotal = ratingTotal; story.ratingScoreSum = ratingTotal;
+        story.ratingAvg = Number(data.ratingAvg || (ratingCount ? ratingTotal / ratingCount : 0)) || 0;
+        story.avgRating = story.ratingAvg;
         try{
           var key = storyKey(story);
-          var old = JSON.parse(localStorage.getItem('tdn_reaction_counts_' + key) || '{}') || {};
-          Object.keys(reactions).forEach(function(k){ reactions[k] = Math.max(Number(old[k] || 0) || 0, reactions[k]); });
-          localStorage.setItem('tdn_reaction_counts_' + key, JSON.stringify(reactions));
+          if(key) localStorage.setItem('tdn_reaction_counts_' + key, JSON.stringify(readReactionCountsFromCounter(data)));
         }catch(error){}
         return story;
-      }
-      function refreshPublicUi(){
-        try{ if(typeof window.refreshHomeSections === 'function') window.refreshHomeSections(); }catch(error){}
-        try{ if(typeof window.renderRankPage === 'function') window.renderRankPage(); }catch(error){}
-        try{ if(typeof window.renderMoreStories === 'function') window.renderMoreStories(); }catch(error){}
       }
       function updateRuntimeStory(story, patch){
         var id = storyKey(story);
@@ -9384,118 +9310,55 @@ margin-right:0 !important;
         var pools = [];
         try{ if(Array.isArray(window.stories)) pools.push(window.stories); }catch(error){}
         try{ if(Array.isArray(window.MOC_STORY_ADMIN_DATA)) pools.push(window.MOC_STORY_ADMIN_DATA); }catch(error){}
-        pools.forEach(function(list){
-          list.forEach(function(item){ if(storyKey(item) === id) mergeCounterToStory(item, patch || {}); });
-        });
-        try{ mergeCounterToStory(story, patch || {}); }catch(error){}
+        pools.forEach(function(list){ list.forEach(function(item){ if(storyKey(item) === id) Object.assign(item, patch || {}); }); });
+        try{ Object.assign(story, patch || {}); }catch(error){}
       }
-      function createRankingPatch(story, patch){
-        var data = baseStoryMeta(story);
-        Object.assign(data, patch || {});
-        return data;
+      function refreshPublicUi(story){
+        try{ if(story && typeof window.formatFullNumber === 'function' && window.detailViews && window.currentStory && storyKey(window.currentStory) === storyKey(story)) window.detailViews.textContent = window.formatFullNumber(Number(story.views || story.viewCount || story.totalViews || 0) || 0); }catch(error){}
+        try{ if(story && typeof window.renderReactions === 'function') window.renderReactions(story); }catch(error){}
+        try{ if(story && typeof window.updateDetailLikesDisplay === 'function') window.updateDetailLikesDisplay(story); }catch(error){}
+        try{ if(typeof window.refreshHomeSections === 'function') window.refreshHomeSections(); }catch(error){}
+        try{ if(typeof window.renderRankPage === 'function') window.renderRankPage(); }catch(error){}
+        try{ if(typeof window.renderMoreStories === 'function') window.renderMoreStories(); }catch(error){}
       }
+
       function ensureMainSchema(){
-        var db = getMainDb();
-        if(!db) return Promise.resolve(false);
-        var markerKey = 'tdn_main_schema_ready_online1_v1';
-        try{
-          if(localStorage.getItem(markerKey) === '1') return Promise.resolve(true);
-        }catch(error){}
-        var now = serverTimestamp();
-        var schemaData = {
-          type: 'schema',
-          app: 'doc-truyen-cv',
-          mainShardId: 'main_01',
-          purpose: 'Luồng chính lưu số liệu nhẹ: views, bookmarks, ratings, reactions, reader actions, site stats, ranking cache.',
-          collections: MAIN_COLLECTIONS,
-          updatedAt: now,
-          updatedAtMs: Date.now()
-        };
-        var writes = [
-          {ref: db.collection(MAIN_COLLECTIONS.storyCounters).doc('_schema'), data: Object.assign({}, schemaData, {collection:'storyCounters'})},
-          {ref: db.collection(MAIN_COLLECTIONS.storyViewStats).doc('_schema'), data: Object.assign({}, schemaData, {collection:'storyViewStats'})},
-          {ref: db.collection(MAIN_COLLECTIONS.readerActions).doc('_schema'), data: Object.assign({}, schemaData, {collection:'readerActions'})},
-          {ref: db.collection(MAIN_COLLECTIONS.rankingCache).doc('_schema'), data: Object.assign({}, schemaData, {collection:'rankingCache'})},
-          {ref: db.collection(MAIN_COLLECTIONS.siteStats).doc('global'), data: {mainShardId:'main_01', totalViews: increment(0), totalBookmarks: increment(0), totalRatings: increment(0), totalReactions: increment(0), totalVisitors: increment(0), updatedAt: now, updatedAtMs: Date.now()}}
-        ];
-        return writeMainBatch(writes).then(function(ok){
-          try{ if(ok) localStorage.setItem(markerKey, '1'); }catch(error){}
-          return ok;
-        });
+        var ref = siteStatsRef();
+        if(!ref) return Promise.resolve(false);
+        return writeMerge(ref, {totalViews:increment(0), totalBookmarks:increment(0), totalRatings:increment(0), totalReactions:increment(0), totalVisitors:increment(0), updatedAt:serverTimestamp()});
       }
 
       function recordView(story){
-        var ref = counterRef(story);
-        var statRef = viewStatRef(story);
-        var actionRef = readerActionRef(story);
-        var statsRef = siteStatsRef();
-        var rankRef = rankingRef(story);
-        if(!ref) return Promise.resolve(false);
-        var now = new Date();
-        var meta = baseStoryMeta(story);
-        var viewPatch = Object.assign({}, meta, {
-          viewsTotal: increment(1), views: increment(1), viewCount: increment(1), totalViews: increment(1),
-          viewsToday: increment(1), viewsWeek: increment(1), weekViews: increment(1), viewsMonth: increment(1), monthViews: increment(1),
-          viewDayKey: dateKey(now), viewWeekKey: weekKey(now), viewMonthKey: monthKey(now),
-          lastViewedAt: serverTimestamp(), lastViewedAtMs: Date.now()
-        });
-        var statPatch = Object.assign({}, meta, {
-          date: dateKey(now), dayKey: dateKey(now), weekKey: weekKey(now), monthKey: monthKey(now),
-          views: increment(1), viewsTotal: increment(1), updatedAt: serverTimestamp(), updatedAtMs: Date.now()
-        });
-        var actionPatch = {
-          deviceId: getDeviceId(), storyId: storyKey(story), lastViewAt: serverTimestamp(), lastViewAtMs: Date.now(),
-          viewDayKey: dateKey(now), viewWeekKey: weekKey(now), viewMonthKey: monthKey(now), updatedAt: serverTimestamp(), updatedAtMs: Date.now()
-        };
-        var sitePatch = {totalViews: increment(1), lastViewAt: serverTimestamp(), updatedAt: serverTimestamp(), updatedAtMs: Date.now()};
-        var rankingPatch = createRankingPatch(story, {
-          viewsTotal: increment(1), views: increment(1), viewCount: increment(1), viewsWeek: increment(1), viewsMonth: increment(1),
-          viewDayKey: dateKey(now), viewWeekKey: weekKey(now), viewMonthKey: monthKey(now), lastViewedAt: serverTimestamp()
-        });
-        updateRuntimeStory(story, {viewsTotal:(Number(story && (story.views || story.viewCount || story.totalViews)) || 0) + 1, views:(Number(story && (story.views || story.viewCount || story.totalViews)) || 0) + 1, viewsWeek:(Number(story && (story.viewsWeek || story.weekViews)) || 0) + 1, viewsMonth:(Number(story && (story.viewsMonth || story.monthViews)) || 0) + 1});
-        return writeMainBatch([
-          {ref: ref, data: viewPatch},
-          {ref: statRef, data: statPatch},
-          {ref: actionRef, data: actionPatch},
-          {ref: statsRef, data: sitePatch},
-          {ref: rankRef, data: rankingPatch}
-        ]).then(function(){ return true; });
-      }
-
-      function recordBookmark(story, active){
-        var ref = counterRef(story);
-        if(!ref) return Promise.resolve(false);
-        var delta = active ? 1 : -1;
-        var patch = Object.assign({}, baseStoryMeta(story), {
-          bookmarksTotal: increment(delta), bookmarks: increment(delta), bookmarkCount: increment(delta), savedCount: increment(delta),
-          lastBookmarkedAt: active ? serverTimestamp() : null,
-          lastBookmarkChangedAt: serverTimestamp()
-        });
-        var actionPatch = {
-          deviceId: getDeviceId(), storyId: storyKey(story), bookmarked: !!active,
-          bookmarkUpdatedAt: serverTimestamp(), updatedAt: serverTimestamp(), updatedAtMs: Date.now()
-        };
-        var sitePatch = {totalBookmarks: increment(delta), updatedAt: serverTimestamp(), updatedAtMs: Date.now()};
-        var rankPatch = createRankingPatch(story, {bookmarksTotal: increment(delta), bookmarks: increment(delta), bookmarkCount: increment(delta), savedCount: increment(delta), bookmarkUpdatedAt: serverTimestamp()});
-        updateRuntimeStory(story, {bookmarksTotal:(Number(story && (story.bookmarks || story.bookmarkCount || story.savedCount)) || 0) + delta, bookmarks:(Number(story && (story.bookmarks || story.bookmarkCount || story.savedCount)) || 0) + delta});
-        return writeMainBatch([
-          {ref: ref, data: patch},
-          {ref: readerActionRef(story), data: actionPatch},
-          {ref: siteStatsRef(), data: sitePatch},
-          {ref: rankingRef(story), data: rankPatch}
-        ]).then(function(){ return true; });
-      }
-
-      function readRecordedRatings(){
-        try{ return JSON.parse(localStorage.getItem('tdn_main_recorded_rating_scores_v2') || '{}') || {}; }catch(error){ return {}; }
-      }
-      function writeRecordedRatings(map){
-        try{ localStorage.setItem('tdn_main_recorded_rating_scores_v2', JSON.stringify(map || {})); }catch(error){}
-      }
-      function recordRating(story, score){
-        var ref = counterRef(story);
-        if(!ref) return Promise.resolve(false);
         var id = storyKey(story);
+        if(!id) return Promise.resolve(false);
+        var currentViews = Number(story && (story.views || story.viewCount || story.totalViews || 0)) || 0;
+        updateRuntimeStory(story, {views:currentViews + 1, viewCount:currentViews + 1, totalViews:currentViews + 1});
+        var today = dateKey(new Date());
+        return writeMainBatch([
+          {ref:counterRef(story), data:{storyId:id, viewsTotal:increment(1), updatedAt:serverTimestamp()}},
+          {ref:viewStatRef(story), data:{storyId:id, date:today, views:increment(1), updatedAt:serverTimestamp()}},
+          {ref:readerActionRef(story), data:{storyId:id, deviceId:getDeviceId(), lastViewAt:serverTimestamp(), updatedAt:serverTimestamp()}},
+          {ref:siteStatsRef(), data:{totalViews:increment(1), updatedAt:serverTimestamp()}}
+        ]).then(function(){ return hydrateStoryCounters([story]); });
+      }
+      function recordBookmark(story, active){
+        var id = storyKey(story);
+        if(!id) return Promise.resolve(false);
+        var delta = active ? 1 : -1;
+        var current = Number(story && (story.bookmarks || story.bookmarkCount || story.savedCount || 0)) || 0;
+        updateRuntimeStory(story, {bookmarks:Math.max(0, current + delta), bookmarkCount:Math.max(0, current + delta), savedCount:Math.max(0, current + delta)});
+        return writeMainBatch([
+          {ref:counterRef(story), data:{storyId:id, bookmarksTotal:increment(delta), updatedAt:serverTimestamp()}},
+          {ref:readerActionRef(story), data:{storyId:id, deviceId:getDeviceId(), bookmarked:!!active, updatedAt:serverTimestamp()}},
+          {ref:siteStatsRef(), data:{totalBookmarks:increment(delta), updatedAt:serverTimestamp()}}
+        ]).then(function(){ return hydrateStoryCounters([story]); });
+      }
+      function readRecordedRatings(){ try{ return JSON.parse(localStorage.getItem('tdn_main_recorded_rating_scores_v2') || '{}') || {}; }catch(error){ return {}; } }
+      function writeRecordedRatings(map){ try{ localStorage.setItem('tdn_main_recorded_rating_scores_v2', JSON.stringify(map || {})); }catch(error){} }
+      function recordRating(story, score){
+        var id = storyKey(story);
+        var ref = counterRef(story);
+        if(!id || !ref) return Promise.resolve(false);
         var value = clampNumber(score, 1, 10);
         var recorded = readRecordedRatings();
         var old = Number(recorded[id] || 0) || 0;
@@ -9503,80 +9366,51 @@ margin-right:0 !important;
         var totalDelta = value - old;
         recorded[id] = value;
         writeRecordedRatings(recorded);
-        var basePatch = Object.assign({}, baseStoryMeta(story), {
-          ratingCount: increment(countDelta), ratings: increment(countDelta), reviewCount: increment(countDelta),
-          ratingTotal: increment(totalDelta), ratingScoreSum: increment(totalDelta), latestRating: value,
-          lastRatedAt: serverTimestamp(), lastRatingChangedAt: serverTimestamp()
-        });
-        var actionPatch = {
-          deviceId: getDeviceId(), storyId: id, ratingValue: value, ratingUpdatedAt: serverTimestamp(), updatedAt: serverTimestamp(), updatedAtMs: Date.now()
-        };
-        var sitePatch = {totalRatings: increment(countDelta), ratingScoreSum: increment(totalDelta), updatedAt: serverTimestamp(), updatedAtMs: Date.now()};
-        var rankPatch = createRankingPatch(story, {ratingCount: increment(countDelta), ratings: increment(countDelta), reviewCount: increment(countDelta), ratingTotal: increment(totalDelta), ratingScoreSum: increment(totalDelta), latestRating:value, lastRatedAt: serverTimestamp()});
-        updateRuntimeStory(story, {ratingCount:(Number(story && (story.ratingCount || story.ratings || story.reviews || story.reviewCount)) || 0) + countDelta});
         return ref.get().then(function(doc){
           var current = (doc && doc.exists && doc.data()) ? doc.data() : {};
-          var currentCount = Number(current.ratingCount || current.ratings || current.reviewCount || 0) || 0;
-          var currentTotal = Number(current.ratingTotal || current.ratingScoreSum || 0) || 0;
+          var currentCount = Number(current.ratingCount || 0) || 0;
+          var currentTotal = Number(current.ratingTotal || 0) || 0;
           var nextCount = Math.max(0, currentCount + countDelta);
           var nextTotal = Math.max(0, currentTotal + totalDelta);
-          basePatch.ratingAvg = nextCount ? Math.round((nextTotal / nextCount) * 10) / 10 : 0;
-          basePatch.avgRating = basePatch.ratingAvg;
-          rankPatch.ratingAvg = basePatch.ratingAvg;
+          var avg = nextCount ? Math.round((nextTotal / nextCount) * 10) / 10 : 0;
+          updateRuntimeStory(story, {ratingCount:nextCount, ratings:nextCount, reviews:nextCount, reviewCount:nextCount, ratingTotal:nextTotal, ratingScoreSum:nextTotal, ratingAvg:avg, avgRating:avg});
           return writeMainBatch([
-            {ref: ref, data: basePatch},
-            {ref: readerActionRef(story), data: actionPatch},
-            {ref: siteStatsRef(), data: sitePatch},
-            {ref: rankingRef(story), data: rankPatch}
+            {ref:ref, data:{storyId:id, ratingCount:increment(countDelta), ratingTotal:increment(totalDelta), ratingAvg:avg, updatedAt:serverTimestamp()}},
+            {ref:readerActionRef(story), data:{storyId:id, deviceId:getDeviceId(), ratingValue:value, updatedAt:serverTimestamp()}},
+            {ref:siteStatsRef(), data:{totalRatings:increment(countDelta), updatedAt:serverTimestamp()}}
           ]);
-        }).then(function(){ return true; }).catch(function(error){ console.warn('Không đồng bộ đánh giá:', error); return false; });
+        }).then(function(){ return hydrateStoryCounters([story]); }).catch(function(error){ console.warn('Không đồng bộ đánh giá:', error); return false; });
       }
-
-      function readRecordedReactions(){
-        try{ return JSON.parse(localStorage.getItem('tdn_main_recorded_reactions_v2') || '{}') || {}; }catch(error){ return {}; }
-      }
-      function writeRecordedReactions(map){
-        try{ localStorage.setItem('tdn_main_recorded_reactions_v2', JSON.stringify(map || {})); }catch(error){}
-      }
+      function readRecordedReactions(){ try{ return JSON.parse(localStorage.getItem('tdn_main_recorded_reactions_v2') || '{}') || {}; }catch(error){ return {}; } }
+      function writeRecordedReactions(map){ try{ localStorage.setItem('tdn_main_recorded_reactions_v2', JSON.stringify(map || {})); }catch(error){} }
       function recordReaction(story, reactionId){
-        var ref = counterRef(story);
-        if(!ref) return Promise.resolve(false);
         var id = storyKey(story);
-        var key = normalizeReactionKey(reactionId);
-        var legacyField = {like:'reactionLike', laugh:'reactionLaugh', cry:'reactionCry', angry:'reactionAngry'}[key];
-        if(!legacyField) return Promise.resolve(false);
+        var ref = counterRef(story);
+        if(!id || !ref) return Promise.resolve(false);
+        var mainKey = normalizeReactionKey(reactionId);
+        if(['like','funny','sad','bad'].indexOf(mainKey) < 0) return Promise.resolve(false);
+        var uiKey = uiReactionKey(mainKey);
         var recorded = readRecordedReactions();
         var used = recorded[id] || {};
-        if(used[key]) return Promise.resolve(true);
-        used[key] = true;
+        if(used[mainKey]) return Promise.resolve(true);
+        used[mainKey] = true;
         recorded[id] = used;
         writeRecordedReactions(recorded);
-        var reactionsPatch = {};
-        reactionsPatch['reactions.' + key] = increment(1);
-        reactionsPatch[legacyField] = increment(1);
-        reactionsPatch.reactionTotal = increment(1);
-        reactionsPatch.lastReaction = key;
-        reactionsPatch.lastReactedAt = serverTimestamp();
-        Object.assign(reactionsPatch, baseStoryMeta(story));
-        var actionPatch = {
-          deviceId: getDeviceId(), storyId: id, updatedAt: serverTimestamp(), updatedAtMs: Date.now(), reactionUpdatedAt: serverTimestamp()
-        };
-        actionPatch['reactions.' + key] = true;
-        var sitePatch = {totalReactions: increment(1), updatedAt: serverTimestamp(), updatedAtMs: Date.now()};
-        var rankPatch = createRankingPatch(story, {});
-        rankPatch['reactions.' + key] = increment(1);
-        rankPatch[legacyField] = increment(1);
-        rankPatch.reactionTotal = increment(1);
-        rankPatch.lastReaction = key;
-        rankPatch.lastReactedAt = serverTimestamp();
+        var counterPatch = {storyId:id, updatedAt:serverTimestamp()};
+        counterPatch['reactions.' + mainKey] = increment(1);
+        var actionPatch = {storyId:id, deviceId:getDeviceId(), updatedAt:serverTimestamp()};
+        actionPatch['reactions.' + mainKey] = true;
+        try{
+          var local = JSON.parse(localStorage.getItem('tdn_reaction_counts_' + id) || '{}') || {};
+          local[uiKey] = (Number(local[uiKey] || 0) || 0) + 1;
+          localStorage.setItem('tdn_reaction_counts_' + id, JSON.stringify(local));
+        }catch(error){}
         return writeMainBatch([
-          {ref: ref, data: reactionsPatch},
-          {ref: readerActionRef(story), data: actionPatch},
-          {ref: siteStatsRef(), data: sitePatch},
-          {ref: rankingRef(story), data: rankPatch}
-        ]).then(function(){ return true; }).catch(function(error){ console.warn('Không đồng bộ cảm xúc:', error); return false; });
+          {ref:ref, data:counterPatch},
+          {ref:readerActionRef(story), data:actionPatch},
+          {ref:siteStatsRef(), data:{totalReactions:increment(1), updatedAt:serverTimestamp()}}
+        ]).then(function(){ return hydrateStoryCounters([story]); }).catch(function(error){ console.warn('Không đồng bộ cảm xúc:', error); return false; });
       }
-
       function hydrateStoryCounters(list){
         var stories = Array.isArray(list) ? list : (Array.isArray(window.stories) ? window.stories : []);
         var db = getMainDb();
@@ -9587,33 +9421,49 @@ margin-right:0 !important;
         return Promise.all(unique.slice(0, 150).map(function(story){
           var id = storyKey(story);
           return db.collection(MAIN_COLLECTIONS.storyCounters).doc(slugDocId(id)).get().then(function(doc){
-            if(doc && doc.exists){ mergeCounterToStory(story, doc.data() || {}); }
+            if(doc && doc.exists) mergeCounterToStory(story, doc.data() || {});
+            refreshPublicUi(story);
             return story;
           }).catch(function(){ return story; });
         })).then(function(result){ refreshPublicUi(); return result; });
       }
+      function recordVisitor(){
+        var db = getMainDb();
+        if(!db) return Promise.resolve(false);
+        var id = getDeviceId();
+        var ref = db.collection(MAIN_COLLECTIONS.siteVisitors).doc(slugDocId(id));
+        return ref.get().then(function(doc){
+          var data = {deviceId:id, lastSeenAt:serverTimestamp(), updatedAt:serverTimestamp()};
+          if(!(doc && doc.exists)){ data.firstSeenAt = serverTimestamp(); data.createdAt = serverTimestamp(); }
+          return writeMerge(ref, data).then(function(){
+            if(!(doc && doc.exists)) return writeMerge(siteStatsRef(), {totalVisitors:increment(1), updatedAt:serverTimestamp()});
+            return true;
+          });
+        }).catch(function(){ return false; });
+      }
 
       window.TDNFirebaseFlows = {
-        getMainDb: getMainDb,
-        getStoryDb: getStoryDb,
-        getMainApp: initDefaultMainApp,
-        getStoryApp: initNamedStoryApp,
-        serverTimestamp: serverTimestamp,
-        increment: increment,
-        counterRef: counterRef,
-        viewStatRef: viewStatRef,
-        readerActionRef: readerActionRef,
-        siteStatsRef: siteStatsRef,
-        rankingRef: rankingRef,
-        recordView: recordView,
-        recordBookmark: recordBookmark,
-        recordRating: recordRating,
-        recordReaction: recordReaction,
-        hydrateStoryCounters: hydrateStoryCounters,
-        applyCountersToStory: mergeCounterToStory,
-        ensureMainSchema: ensureMainSchema,
-        mainCollections: MAIN_COLLECTIONS,
-        storyCollections: STORY_COLLECTIONS
+        getMainDb:getMainDb,
+        getStoryDb:getStoryDb,
+        getMainApp:initDefaultMainApp,
+        getStoryApp:initNamedStoryApp,
+        serverTimestamp:serverTimestamp,
+        increment:increment,
+        counterRef:counterRef,
+        viewStatRef:viewStatRef,
+        readerActionRef:readerActionRef,
+        siteStatsRef:siteStatsRef,
+        rankingRef:rankingRef,
+        recordView:recordView,
+        recordBookmark:recordBookmark,
+        recordRating:recordRating,
+        recordReaction:recordReaction,
+        hydrateStoryCounters:hydrateStoryCounters,
+        applyCountersToStory:mergeCounterToStory,
+        ensureMainSchema:ensureMainSchema,
+        recordVisitor:recordVisitor,
+        mainCollections:MAIN_COLLECTIONS,
+        storyCollections:STORY_COLLECTIONS
       };
 
       try{
@@ -9621,6 +9471,7 @@ margin-right:0 !important;
         window.TDN_STORY_FIRESTORE_DB = getStoryDb();
         window.TDN_FIRESTORE_DB = window.TDN_STORY_FIRESTORE_DB;
         ensureMainSchema().catch(function(){});
+        recordVisitor().catch(function(){});
       }catch(error){
         console.warn('Không khởi tạo được 2 luồng Firebase compat:', error);
       }
@@ -12652,7 +12503,7 @@ svg *{
 
     function getStoryViewTotal(story){
       if(!story) return 0;
-      return getStoryBaseViewCount(story) + getStoryViewExtraCount(story.id);
+      return getStoryBaseViewCount(story);
     }
 
     function getStoryViewWeekPeriodId(time = Date.now()){
@@ -13204,11 +13055,11 @@ svg *{
       }
 
       saveStoryViewCooldown(story.id, currentTime);
-      setStoryViewExtraCount(story.id, getStoryViewExtraCount(story.id) + 1);
-      setStoryWeekViewExtraCount(story.id, getStoryWeekViewExtraCount(story.id) + 1);
       try{
         if(window.TDNFirebaseFlows && typeof window.TDNFirebaseFlows.recordView === 'function'){
-          window.TDNFirebaseFlows.recordView(story);
+          window.TDNFirebaseFlows.recordView(story).then(function(){
+            try{ refreshStoryViewDisplays(story); }catch(innerError){}
+          });
         }
       }catch(error){}
       refreshStoryViewDisplays(story);
@@ -13222,7 +13073,7 @@ svg *{
 
     function getWeekViews(story){
       const value = story?.viewsWeek ?? story?.weekViews ?? story?.weeklyViews ?? story?.hotViews ?? story?.views_week ?? (story?.stats && (story.stats.viewsWeek ?? story.stats.weekViews ?? story.stats.weeklyViews));
-      return parseStoryViewNumber(value) + getStoryWeekViewExtraCount(story && story.id);
+      return parseStoryViewNumber(value);
     }
 
     function getMonthViews(story){
@@ -15936,6 +15787,18 @@ svg *{
       detailChapterCount.textContent = formatFullNumber(story.chapterCount || chapters.length);
       detailViews.textContent = formatFullNumber(getStoryViewTotal(story));
       countStoryDetailView(story);
+      try{
+        if(window.TDNFirebaseFlows && typeof window.TDNFirebaseFlows.hydrateStoryCounters === 'function'){
+          window.TDNFirebaseFlows.hydrateStoryCounters([story]).then(function(){
+            try{ detailViews.textContent = formatFullNumber(getStoryViewTotal(story)); }catch(innerError){}
+            try{ if(typeof renderReactions === 'function') renderReactions(story); }catch(innerError){}
+            try{ if(typeof updateDetailLikesDisplay === 'function') updateDetailLikesDisplay(story); }catch(innerError){}
+          });
+          setTimeout(function(){
+            try{ window.TDNFirebaseFlows.hydrateStoryCounters([story]); }catch(innerError){}
+          }, 1600);
+        }
+      }catch(error){}
       saveViewedHistory(story.id);
       updateDetailLikesDisplay(story);
       updateDetailSaveBadge(story);
@@ -27716,24 +27579,17 @@ line-height:1.35 !important;
     const docRef = db.collection(ADMIN_VISITOR_COLLECTION).doc(visitorId);
     const nowValue = getAdminServerTimestamp();
     const baseInfo = {
-      visitorId: visitorId,
+      deviceId: visitorId,
       lastSeenAt: nowValue,
-      lastPath: location.pathname + location.search,
-      userAgent: String(navigator.userAgent || '').slice(0, 220),
-      language: navigator.language || '',
-      timezone: (Intl.DateTimeFormat().resolvedOptions().timeZone || '')
+      updatedAt: nowValue
     };
     docRef.get().then(snapshot => {
       if(snapshot && snapshot.exists){
-        return docRef.set(Object.assign({}, baseInfo, {
-          visits: getAdminIncrement(1)
-        }), {merge:true});
+        return docRef.set(baseInfo, {merge:true});
       }
       return docRef.set(Object.assign({}, baseInfo, {
         createdAt: nowValue,
-        firstSeenAt: nowValue,
-        firstPath: location.pathname + location.search,
-        visits: 1
+        firstSeenAt: nowValue
       }), {merge:true});
     }).catch(() => {
       visitorRecordStarted = false;
@@ -32052,7 +31908,9 @@ font-size:22px !important;
         writeRatings(all);
         try{
           if(window.TDNFirebaseFlows && typeof window.TDNFirebaseFlows.recordRating === 'function'){
-            window.TDNFirebaseFlows.recordRating(story, score);
+            window.TDNFirebaseFlows.recordRating(story, score).then(function(){
+              try{ renderRating(story); }catch(innerError){}
+            });
           }
         }catch(e){}
         renderRating(story);
@@ -32073,15 +31931,8 @@ font-size:22px !important;
     var userScore = safeNumber(saved[storyKey(story)], 0);
     var baseCount = getBaseCount(story);
     var baseAvg = getBaseAvg(story, baseCount);
-    var total = baseAvg * baseCount;
     var count = baseCount;
-
-    if(userScore >= 1){
-      total += userScore;
-      count += 1;
-    }
-
-    var avg = count > 0 ? total / count : DEFAULT_AVG;
+    var avg = count > 0 ? baseAvg : DEFAULT_AVG;
     var fillScore = userScore >= 1 ? userScore : Math.round(avg);
 
     Array.prototype.forEach.call(stars.querySelectorAll('.tdn-rate-star-btn'), function(btn){
