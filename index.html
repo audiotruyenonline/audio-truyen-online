@@ -7049,8 +7049,7 @@ color-scheme: light dark;
 }body.reader-dark :is(
 h1,h2,h3,h4,h5,h6,p,span,a,button,label,strong,small,em,b,li,div,
 .cover-title,.detail-title,.detail-author,.detail-genre,.detail-status,.detail-summary,
-.story-title,.story-name,.story-author,.story-meta,.rank-title,.rank-subline,.rank-metric,
-.rank-featured-title,.rank-featured-meta,.rank-featured-author,.rank-featured-stat-text,
+.story-title,.story-name,.story-author,.story-meta,
 .section-title,.more-title,.home-title,.tab-btn,.detail-nav-btn,.shortcut-label,
 .search-placeholder,.search-input,.saved-story-name,.saved-story-author,.history-item-title
 ){
@@ -7064,8 +7063,7 @@ body{
 body :is(
 h1,h2,h3,h4,h5,h6,p,span,a,button,label,strong,small,em,b,li,div,
 .cover-title,.detail-title,.detail-author,.detail-genre,.detail-status,.detail-summary,
-.story-title,.story-name,.story-author,.story-meta,.rank-title,.rank-subline,.rank-metric,
-.rank-featured-title,.rank-featured-meta,.rank-featured-author,.rank-featured-stat-text,
+.story-title,.story-name,.story-author,.story-meta,
 .section-title,.more-title,.home-title,.tab-btn,.detail-nav-btn,.shortcut-label,
 .search-placeholder,.search-input,.saved-story-name,.saved-story-author,.history-item-title
 ){
@@ -9355,7 +9353,8 @@ margin-right:0 !important;
         storyCounters: 'storyCounters',
         storyViewStats: 'storyViewStats',
         readerActions: 'readerActions',
-        siteVisitors: 'site_visitors'
+        siteVisitors: 'site_visitors',
+        rankingSync: 'rankingSync'
       };
 
       var STORY_COLLECTIONS = {
@@ -9658,7 +9657,6 @@ margin-right:0 !important;
 
       function refreshPublicUi(story){
         try{ if(typeof window.refreshHomeSections === 'function') window.refreshHomeSections(); }catch(error){}
-        try{ if(typeof window.renderRankPage === 'function') window.renderRankPage(); }catch(error){}
         try{ if(typeof window.renderMoreStories === 'function') window.renderMoreStories(); }catch(error){}
       }
 
@@ -9793,13 +9791,7 @@ margin-right:0 !important;
           {ref:viewStatRef(story, now), data:{storyId:id, date:todayKey, period:'day', hiddenViews:increment(1), updatedAt:serverTimestamp()}},
           {ref:readerActionRef(story), data:{storyId:id, browserId:getBrowserClientId(), hiddenLastViewAt:serverTimestamp(), updatedAt:serverTimestamp()}}
         ]).then(function(wrote){
-          if(wrote){
-            try{
-              setTimeout(function(){
-                if(window.tdnSyncMainFirebaseCounters) window.tdnSyncMainFirebaseCounters([story]);
-              }, 250);
-            }catch(error){}
-          }
+          try{ updateRankingSnapshotForStory(story, {total:1, week:1, month:1, today:1}); }catch(error){}
           return !!wrote;
         });
       }
@@ -9822,7 +9814,10 @@ margin-right:0 !important;
             return {changed:!!delta, delta:delta};
           });
         }).then(function(result){
-          if(result && result.changed) applyFastCounterDelta(story, {bookmarks:result.delta});
+          if(result && result.changed){
+            applyFastCounterDelta(story, {bookmarks:result.delta});
+            try{ updateRankingSnapshotForStory(story, {bookmarks:result.delta}); }catch(error){}
+          }
           refreshPublicUi(story);
           return true;
         }).catch(function(error){
@@ -9830,39 +9825,473 @@ margin-right:0 !important;
           return false;
         });
       }
-      function syncStoryListCountersOnce(list){
-        var items = Array.isArray(list) ? list.filter(Boolean) : [];
-        if(!items.length) return Promise.resolve(items);
-        var cache = readHiddenViewCache();
+      function getAllMainCounterRefs(story, dateInfo){
+        var id = storyKey(story);
+        if(!id) return [];
+        var docId = slugDocId(id);
+        var mains = [];
+        try{ mains = getMainReadDbs(); }catch(error){ mains = []; }
+        if(!mains.length){
+          var db = getMainDb();
+          if(db) mains = [{id:getActiveMainShardId(), name:'Luồng chính đang dùng', db:db}];
+        }
+        return mains.map(function(main){
+          var db = main && main.db;
+          if(!db) return null;
+          return {
+            mainId:main.id || '',
+            counter:db.collection(MAIN_COLLECTIONS.storyCounters).doc(docId),
+            week:db.collection(MAIN_COLLECTIONS.storyViewStats).doc(docId + '_' + dateInfo.weekKey),
+            month:db.collection(MAIN_COLLECTIONS.storyViewStats).doc(docId + '_' + dateInfo.monthKey),
+            day:db.collection(MAIN_COLLECTIONS.storyViewStats).doc(docId + '_' + dateInfo.dayKey)
+          };
+        }).filter(Boolean);
+      }
+
+      function readPeriodHiddenViews(data){
+        data = data || {};
+        return readHiddenViewNumber(data.hiddenViews, data.hotViews, data.viewsHidden, data.hiddenViewsTotal, data.viewsHiddenTotal, data.views, data.viewCount, data.totalViews, 0);
+      }
+
+      function readCounterTotalViews(data){
+        data = data || {};
+        return readHiddenViewNumber(data.hiddenViewsTotal, data.hotViewsTotal, data.hiddenViews, data.viewsHiddenTotal, data.viewsTotal, data.views, data.viewCount, data.totalViews, 0);
+      }
+
+      function readCounterBookmarks(data){
+        data = data || {};
+        return readHiddenViewNumber(data.bookmarksTotal, data.bookmarks, data.bookmarkCount, data.savedCount, data.saveCount, 0);
+      }
+
+      var RANKING_SYNC_DOC_ID = 'global_v1';
+      var RANKING_SYNC_CACHE_KEY = 'tdn_ranking_sync_snapshot_v2';
+      var RANKING_SYNC_MAX_ITEMS = 180;
+      var rankingSyncInFlight = null;
+
+      function getRankingSyncDb(){
+        var first = MAIN_FIREBASES && MAIN_FIREBASES[0] && MAIN_FIREBASES[0].id;
+        var db = null;
+        try{ if(first) db = getShardDb('main', first); }catch(error){}
+        if(!db){ try{ db = getMainDb(); }catch(error){} }
+        return db || null;
+      }
+
+      function rankingSyncRef(){
+        var db = getRankingSyncDb();
+        if(!db) return null;
+        return db.collection(MAIN_COLLECTIONS.rankingSync || 'rankingSync').doc(RANKING_SYNC_DOC_ID);
+      }
+
+      function rankingNowKeys(){
         var now = new Date();
-        var weekKey = hotWeekKey(now);
-        var monthKey = hotMonthKey(now);
-        var dayKey = dateKey(now);
-        var tasks = items.map(function(story){
-          var id = storyKey(story);
-          var refs = [counterRef(story), hiddenViewPeriodRef(story, weekKey), hiddenViewPeriodRef(story, monthKey), viewStatRef(story, now)];
-          if(!id || refs.some(function(ref){ return !ref; })) return Promise.resolve(false);
-          return Promise.all(refs.map(function(ref){ return ref.get().catch(function(){ return null; }); })).then(function(snaps){
-            var counterData = snaps[0] && snaps[0].exists ? (snaps[0].data() || {}) : {};
-            var weekData = snaps[1] && snaps[1].exists ? (snaps[1].data() || {}) : {};
-            var monthData = snaps[2] && snaps[2].exists ? (snaps[2].data() || {}) : {};
-            var dayData = snaps[3] && snaps[3].exists ? (snaps[3].data() || {}) : {};
-            var shape = makeHiddenViewShape(counterData, weekData, monthData, dayData);
-            shape.weekKey = weekKey;
-            shape.monthKey = monthKey;
-            shape.dayKey = dayKey;
-            cache[id] = shape;
-            applyHiddenViewShapeToStory(story, shape);
-            applyFirebaseHiddenViewShapeToStory(story, shape);
-            mergeCounterToStory(story, counterData);
-            return true;
+        return {weekKey:hotWeekKey(now), monthKey:hotMonthKey(now), dayKey:dateKey(now)};
+      }
+
+      function readRankingSyncCache(){
+        try{
+          var raw = JSON.parse(localStorage.getItem(RANKING_SYNC_CACHE_KEY) || 'null');
+          return normalizeRankingSnapshot(raw);
+        }catch(error){ return null; }
+      }
+
+      function saveRankingSyncCache(snapshot){
+        try{
+          var clean = normalizeRankingSnapshot(snapshot);
+          if(clean) localStorage.setItem(RANKING_SYNC_CACHE_KEY, JSON.stringify(clean));
+        }catch(error){}
+      }
+
+      function rankReadNumber(){
+        return readHiddenViewNumber.apply(null, arguments);
+      }
+
+      function rankingStoryTitle(story){
+        return safeText(story && (story.title || story.short || story.name)) || 'Truyện chưa có tên';
+      }
+
+      function rankingStoryAuthor(story){
+        return safeText(story && (story.author || story.writer || story.creator));
+      }
+
+      function rankingStoryCover(story){
+        return safeText(story && (story.coverUrl || story.cover || story.imageUrl || story.image || story.poster || story.thumbnail));
+      }
+
+      function rankingStorySortTime(story){
+        var keys = ['updatedAtMs','createdAtMs','lastChapterUpdatedAt','createdAt','updatedAt','addedAt'];
+        for(var i = 0; i < keys.length; i++){
+          var v = story && story[keys[i]];
+          var n = 0;
+          if(typeof v === 'number') n = v;
+          else if(v && typeof v.toMillis === 'function') n = Number(v.toMillis()) || 0;
+          else if(v && typeof v.seconds === 'number') n = v.seconds * 1000;
+          else if(v) n = Date.parse(String(v)) || 0;
+          if(n) return n;
+        }
+        return 0;
+      }
+
+      function getStoryRankingScores(story){
+        var cache = readHiddenViewCache();
+        var id = storyKey(story);
+        var cached = id && cache[id] ? cache[id] : null;
+        return {
+          total:rankReadNumber(story && story.__tdnFirebaseHiddenViewsTotal, story && story.__tdnHiddenViewsTotal, story && story.hiddenViewsTotal, cached && cached.total, story && story.totalViews, story && story.viewCount, story && story.views, 0),
+          week:rankReadNumber(story && story.__tdnFirebaseHiddenViewsWeek, story && story.__tdnHiddenViewsWeek, story && story.hiddenViewsWeek, cached && cached.week, story && story.weekViews, story && story.viewsWeek, 0),
+          month:rankReadNumber(story && story.__tdnFirebaseHiddenViewsMonth, story && story.__tdnHiddenViewsMonth, story && story.hiddenViewsMonth, cached && cached.month, story && story.monthViews, story && story.viewsMonth, 0),
+          today:rankReadNumber(story && story.__tdnFirebaseHiddenViewsToday, story && story.__tdnHiddenViewsToday, story && story.hiddenViewsToday, cached && cached.today, 0),
+          bookmarks:rankReadNumber(story && story.bookmarksTotal, story && story.bookmarks, story && story.bookmarkCount, story && story.savedCount, story && story.saveCount, 0),
+          sortTime:rankingStorySortTime(story)
+        };
+      }
+
+      function makeRankingItemFromStory(story, scores){
+        scores = scores || getStoryRankingScores(story);
+        var id = storyKey(story);
+        return {
+          id:id,
+          storyId:id,
+          title:rankingStoryTitle(story),
+          author:rankingStoryAuthor(story),
+          coverUrl:rankingStoryCover(story),
+          total:Math.max(0, Math.round(Number(scores.total || 0) || 0)),
+          week:Math.max(0, Math.round(Number(scores.week || 0) || 0)),
+          month:Math.max(0, Math.round(Number(scores.month || 0) || 0)),
+          today:Math.max(0, Math.round(Number(scores.today || 0) || 0)),
+          bookmarks:Math.max(0, Math.round(Number(scores.bookmarks || 0) || 0)),
+          sortTime:Math.max(0, Math.round(Number(scores.sortTime || 0) || 0))
+        };
+      }
+
+      function normalizeRankingItem(raw){
+        raw = raw || {};
+        var id = safeText(raw.id || raw.storyId || raw.slug || raw.title);
+        if(!id) return null;
+        return {
+          id:id,
+          storyId:safeText(raw.storyId || id),
+          title:safeText(raw.title) || id,
+          author:safeText(raw.author),
+          coverUrl:safeText(raw.coverUrl || raw.cover),
+          total:rankReadNumber(raw.total, raw.hiddenViewsTotal, raw.views, 0),
+          week:rankReadNumber(raw.week, raw.hiddenViewsWeek, 0),
+          month:rankReadNumber(raw.month, raw.hiddenViewsMonth, 0),
+          today:rankReadNumber(raw.today, raw.hiddenViewsToday, 0),
+          bookmarks:rankReadNumber(raw.bookmarks, raw.bookmarkCount, 0),
+          sortTime:rankReadNumber(raw.sortTime, raw.updatedAtMs, 0)
+        };
+      }
+
+      function compactRankingItems(list){
+        var seen = Object.create(null);
+        var out = [];
+        (Array.isArray(list) ? list : []).forEach(function(item){
+          var clean = normalizeRankingItem(item);
+          if(!clean) return;
+          var key = safeText(clean.id).toLowerCase();
+          if(!key || seen[key]) return;
+          seen[key] = true;
+          out.push(clean);
+        });
+        return out.slice(0, RANKING_SYNC_MAX_ITEMS);
+      }
+
+      function sortRankingItems(list, key){
+        var primary = key || 'week';
+        return compactRankingItems(list).sort(function(a, b){
+          var byPrimary = (Number(b[primary] || 0) - Number(a[primary] || 0));
+          if(byPrimary) return byPrimary;
+          var byTotal = (Number(b.total || 0) - Number(a.total || 0));
+          if(byTotal) return byTotal;
+          var byTime = (Number(b.sortTime || 0) - Number(a.sortTime || 0));
+          if(byTime) return byTime;
+          return safeText(a.title).localeCompare(safeText(b.title), 'vi', {sensitivity:'base'});
+        }).slice(0, RANKING_SYNC_MAX_ITEMS);
+      }
+
+      function normalizeRankingSnapshot(raw){
+        if(!raw || typeof raw !== 'object') return null;
+        var keys = rankingNowKeys();
+        var snapshot = {
+          version:2,
+          source:safeText(raw.source) || 'client_self_ranker',
+          updatedAt:rankReadNumber(raw.updatedAt, Date.now()),
+          weekKey:safeText(raw.weekKey) || keys.weekKey,
+          monthKey:safeText(raw.monthKey) || keys.monthKey,
+          dayKey:safeText(raw.dayKey) || keys.dayKey,
+          hotWeek:compactRankingItems(raw.hotWeek || raw.weekRank || raw.week || []),
+          hotMonth:compactRankingItems(raw.hotMonth || raw.monthRank || raw.month || []),
+          hotAll:compactRankingItems(raw.hotAll || raw.allTimeRank || raw.alltime || raw.year || []),
+          bookmarks:compactRankingItems(raw.bookmarks || raw.bookmarkRank || [])
+        };
+        return snapshot;
+      }
+
+      function buildRankingSnapshotFromStories(list){
+        var keys = rankingNowKeys();
+        var items = (Array.isArray(list) ? list : []).filter(Boolean).map(function(story){ return makeRankingItemFromStory(story); });
+        var snapshot = {
+          version:2,
+          source:'client_self_ranker',
+          updatedAt:Date.now(),
+          weekKey:keys.weekKey,
+          monthKey:keys.monthKey,
+          dayKey:keys.dayKey,
+          hotWeek:sortRankingItems(items, 'week'),
+          hotMonth:sortRankingItems(items, 'month'),
+          hotAll:sortRankingItems(items, 'total'),
+          bookmarks:sortRankingItems(items, 'bookmarks')
+        };
+        return snapshot;
+      }
+
+      function getRankingSection(snapshot, range){
+        snapshot = normalizeRankingSnapshot(snapshot || window.__tdnRankingSyncSnapshot || readRankingSyncCache());
+        if(!snapshot) return [];
+        if(range === 'month') return snapshot.hotMonth || [];
+        if(range === 'alltime' || range === 'year' || range === 'total') return snapshot.hotAll || [];
+        if(range === 'bookmarks' || range === 'bookmark') return snapshot.bookmarks || [];
+        return snapshot.hotWeek || [];
+      }
+
+      function makeSnapshotLookup(snapshot){
+        var map = Object.create(null);
+        ['hotWeek','hotMonth','hotAll','bookmarks'].forEach(function(section){
+          (snapshot && Array.isArray(snapshot[section]) ? snapshot[section] : []).forEach(function(item, index){
+            var clean = normalizeRankingItem(item);
+            if(!clean) return;
+            [clean.id, clean.storyId, clean.title].forEach(function(value){
+              var key = safeText(value).toLowerCase();
+              if(key && !map[key]) map[key] = clean;
+              try{
+                var slug = safeText(slugDocId(value)).toLowerCase();
+                if(slug && !map[slug]) map[slug] = clean;
+              }catch(error){}
+            });
+            if(clean.__rankIndex == null) clean.__rankIndex = index;
           });
         });
-        return Promise.all(tasks).then(function(){
-          saveHiddenViewCache(cache);
-          try{ window.__tdnMainCountersSynced = true; window.__tdnMainCountersSyncedAt = Date.now(); }catch(error){}
+        return map;
+      }
+
+      function findSnapshotItemForStory(snapshot, story){
+        var map = makeSnapshotLookup(snapshot);
+        var candidates = [storyKey(story), story && story.storyId, story && story.id, story && story.slug, story && story.docId, story && story.key, story && story.title];
+        for(var i = 0; i < candidates.length; i++){
+          var key = safeText(candidates[i]).toLowerCase();
+          if(key && map[key]) return map[key];
+          try{
+            var slug = safeText(slugDocId(candidates[i])).toLowerCase();
+            if(slug && map[slug]) return map[slug];
+          }catch(error){}
+        }
+        return null;
+      }
+
+      function applyRankingSnapshotToStories(snapshot, list){
+        snapshot = normalizeRankingSnapshot(snapshot);
+        if(!snapshot) return false;
+        var cache = readHiddenViewCache();
+        var items = Array.isArray(list) ? list.filter(Boolean) : [];
+        items.forEach(function(story){
+          var id = storyKey(story);
+          var item = findSnapshotItemForStory(snapshot, story) || makeRankingItemFromStory(story);
+          var shape = {
+            total:rankReadNumber(item.total, 0),
+            week:rankReadNumber(item.week, 0),
+            month:rankReadNumber(item.month, 0),
+            today:rankReadNumber(item.today, 0),
+            weekKey:snapshot.weekKey,
+            monthKey:snapshot.monthKey,
+            dayKey:snapshot.dayKey,
+            updatedAt:snapshot.updatedAt,
+            source:'ranking_sync_snapshot'
+          };
+          if(id) cache[id] = shape;
+          applyHiddenViewShapeToStory(story, shape);
+          applyFirebaseHiddenViewShapeToStory(story, shape);
+          mergeCounterToStory(story, {hiddenViewsTotal:shape.total, viewsHiddenTotal:shape.total, bookmarksTotal:rankReadNumber(item.bookmarks, 0), bookmarks:rankReadNumber(item.bookmarks, 0), bookmarkCount:rankReadNumber(item.bookmarks, 0)});
+          story.__tdnRankingSyncApplied = true;
+        });
+        saveHiddenViewCache(cache);
+        window.__tdnRankingSyncSnapshot = snapshot;
+        window.__tdnRankingSyncReady = true;
+        window.__tdnMainCountersSynced = true;
+        window.__tdnMainCountersSyncing = false;
+        window.__tdnMainCountersSyncedAt = Date.now();
+        saveRankingSyncCache(snapshot);
+        try{ document.dispatchEvent(new CustomEvent('tdn:ranking-sync-updated', {detail:{snapshot:snapshot}})); }catch(error){}
+        return true;
+      }
+
+      function mergeRankingItemIntoSection(section, story, delta){
+        var base = compactRankingItems(section || []);
+        var id = storyKey(story);
+        if(!id) return base;
+        var key = safeText(id).toLowerCase();
+        var found = false;
+        for(var i = 0; i < base.length; i++){
+          var item = base[i];
+          var itemKey = safeText(item.id || item.storyId).toLowerCase();
+          if(itemKey === key){
+            item.total = Math.max(0, rankReadNumber(item.total, 0) + rankReadNumber(delta && delta.total, 0));
+            item.week = Math.max(0, rankReadNumber(item.week, 0) + rankReadNumber(delta && delta.week, 0));
+            item.month = Math.max(0, rankReadNumber(item.month, 0) + rankReadNumber(delta && delta.month, 0));
+            item.today = Math.max(0, rankReadNumber(item.today, 0) + rankReadNumber(delta && delta.today, 0));
+            item.bookmarks = Math.max(0, rankReadNumber(item.bookmarks, 0) + (Number(delta && delta.bookmarks) || 0));
+            item.title = rankingStoryTitle(story) || item.title;
+            item.author = rankingStoryAuthor(story) || item.author;
+            item.coverUrl = rankingStoryCover(story) || item.coverUrl;
+            item.sortTime = Date.now();
+            found = true;
+            break;
+          }
+        }
+        if(!found){
+          var scores = getStoryRankingScores(story);
+          scores.total += rankReadNumber(delta && delta.total, 0);
+          scores.week += rankReadNumber(delta && delta.week, 0);
+          scores.month += rankReadNumber(delta && delta.month, 0);
+          scores.today += rankReadNumber(delta && delta.today, 0);
+          scores.bookmarks = Math.max(0, scores.bookmarks + (Number(delta && delta.bookmarks) || 0));
+          scores.sortTime = Date.now();
+          base.push(makeRankingItemFromStory(story, scores));
+        }
+        return base;
+      }
+
+      function updateRankingSnapshotForStory(story, delta){
+        var ref = rankingSyncRef();
+        var id = storyKey(story);
+        if(!ref || !id) return Promise.resolve(false);
+        delta = delta || {};
+        var keys = rankingNowKeys();
+        try{
+          return ref.firestore.runTransaction(function(tx){
+            return tx.get(ref).then(function(snap){
+              var current = snap && snap.exists ? normalizeRankingSnapshot(snap.data() || {}) : null;
+              if(!current) current = buildRankingSnapshotFromStories([story]);
+              if(current.weekKey !== keys.weekKey){ current.weekKey = keys.weekKey; current.hotWeek = []; }
+              if(current.monthKey !== keys.monthKey){ current.monthKey = keys.monthKey; current.hotMonth = []; }
+              current.dayKey = keys.dayKey;
+              current.updatedAt = Date.now();
+              current.source = 'client_self_ranker_live';
+              var sections = {
+                hotWeek:mergeRankingItemIntoSection(current.hotWeek, story, delta),
+                hotMonth:mergeRankingItemIntoSection(current.hotMonth, story, delta),
+                hotAll:mergeRankingItemIntoSection(current.hotAll, story, delta),
+                bookmarks:mergeRankingItemIntoSection(current.bookmarks, story, delta)
+              };
+              current.hotWeek = sortRankingItems(sections.hotWeek, 'week');
+              current.hotMonth = sortRankingItems(sections.hotMonth, 'month');
+              current.hotAll = sortRankingItems(sections.hotAll, 'total');
+              current.bookmarks = sortRankingItems(sections.bookmarks, 'bookmarks');
+              tx.set(ref, current, {merge:true});
+              return current;
+            });
+          }).then(function(snapshot){
+            applyRankingSnapshotToStories(snapshot, (window.__tdnStoriesReadyForCounterSync || window.stories || window.MOC_STORY_ADMIN_DATA || [story]));
+            refreshHiddenHotUi();
+            return true;
+          }).catch(function(error){
+            try{ console.warn('Không cập nhật được rankingSync:', error); }catch(inner){}
+            return false;
+          });
+        }catch(error){
+          return Promise.resolve(false);
+        }
+      }
+
+      function readRankingSnapshotFromFirebase(){
+        var ref = rankingSyncRef();
+        if(!ref) return Promise.resolve(null);
+        return ref.get().then(function(doc){ return doc && doc.exists ? normalizeRankingSnapshot(doc.data() || {}) : null; }).catch(function(error){
+          try{ console.warn('Không đọc được rankingSync:', error); }catch(inner){}
+          return null;
+        });
+      }
+
+      function writeRankingSnapshotToFirebase(snapshot){
+        var ref = rankingSyncRef();
+        snapshot = normalizeRankingSnapshot(snapshot);
+        if(!ref || !snapshot) return Promise.resolve(false);
+        return ref.set(snapshot, {merge:true}).then(function(){ return true; }).catch(function(error){
+          try{ console.warn('Không ghi được rankingSync:', error); }catch(inner){}
+          return false;
+        });
+      }
+
+      function syncRankingSnapshotOnce(list){
+        var items = Array.isArray(list) ? list.filter(Boolean) : [];
+        if(!items.length) return Promise.resolve(items);
+        if(rankingSyncInFlight) return rankingSyncInFlight.then(function(){ return items; });
+        var cached = readRankingSyncCache();
+        if(cached) applyRankingSnapshotToStories(cached, items);
+        window.__tdnMainCountersSyncing = true;
+        rankingSyncInFlight = readRankingSnapshotFromFirebase().then(function(snapshot){
+          if(snapshot){
+            applyRankingSnapshotToStories(snapshot, items);
+            return snapshot;
+          }
+          var fresh = buildRankingSnapshotFromStories(items);
+          applyRankingSnapshotToStories(fresh, items);
+          return writeRankingSnapshotToFirebase(fresh).then(function(){ return fresh; });
+        }).then(function(snapshot){
+          if(snapshot) saveRankingSyncCache(snapshot);
+          window.__tdnMainCountersSyncing = false;
+          window.__tdnMainCountersSynced = true;
+          window.__tdnMainCountersSyncedAt = Date.now();
+          try{ document.dispatchEvent(new CustomEvent('tdn:main-counters-fast-synced', {detail:{snapshot:snapshot, mode:'rankingSync'}})); }catch(error){}
+          refreshHiddenHotUi();
           return items;
-        }).catch(function(){ return items; });
+        }).catch(function(error){
+          try{ console.warn('Không đồng bộ được rankingSync:', error); }catch(inner){}
+          var fallback = buildRankingSnapshotFromStories(items);
+          applyRankingSnapshotToStories(fallback, items);
+          window.__tdnMainCountersSyncing = false;
+          return items;
+        }).then(function(result){ rankingSyncInFlight = null; return result; }, function(error){ rankingSyncInFlight = null; throw error; });
+        return rankingSyncInFlight;
+      }
+
+      function rankingSortStories(list, range){
+        var stories = Array.isArray(list) ? list.slice() : [];
+        var section = getRankingSection(null, range);
+        if(!section.length) return stories;
+        var order = Object.create(null);
+        section.forEach(function(item, index){
+          item = normalizeRankingItem(item);
+          if(!item) return;
+          [item.id, item.storyId, item.title].forEach(function(value){
+            var key = safeText(value).toLowerCase();
+            if(key && order[key] == null) order[key] = index;
+            try{
+              var slug = safeText(slugDocId(value)).toLowerCase();
+              if(slug && order[slug] == null) order[slug] = index;
+            }catch(error){}
+          });
+        });
+        function idx(story){
+          var candidates = [storyKey(story), story && story.storyId, story && story.id, story && story.slug, story && story.docId, story && story.title];
+          for(var i = 0; i < candidates.length; i++){
+            var key = safeText(candidates[i]).toLowerCase();
+            if(key && order[key] != null) return order[key];
+            try{
+              var slug = safeText(slugDocId(candidates[i])).toLowerCase();
+              if(slug && order[slug] != null) return order[slug];
+            }catch(error){}
+          }
+          return Number.MAX_SAFE_INTEGER;
+        }
+        return stories.sort(function(a, b){
+          var ai = idx(a), bi = idx(b);
+          if(ai !== bi) return ai - bi;
+          return 0;
+        });
+      }
+
+      function syncStoryListCountersOnce(list){
+        return syncRankingSnapshotOnce(list);
       }
 
       var tdnDetailCounterWatchKey = '';
@@ -9928,8 +10357,22 @@ margin-right:0 !important;
         applyCountersToStory:mergeCounterToStory,
         ensureMainSchema:ensureMainSchema,
         recordVisitor:recordVisitor,
+        rankingSyncRef:rankingSyncRef,
+        syncRankingSnapshotOnce:syncRankingSnapshotOnce,
+        updateRankingSnapshotForStory:updateRankingSnapshotForStory,
+        buildRankingSnapshotFromStories:buildRankingSnapshotFromStories,
+        applyRankingSnapshotToStories:applyRankingSnapshotToStories,
         mainCollections:MAIN_COLLECTIONS,
         storyCollections:STORY_COLLECTIONS
+      };
+
+      window.TDNRankingSync = {
+        getSnapshot:function(){ return normalizeRankingSnapshot(window.__tdnRankingSyncSnapshot || readRankingSyncCache()); },
+        getSection:getRankingSection,
+        sortStories:rankingSortStories,
+        sync:syncRankingSnapshotOnce,
+        update:updateRankingSnapshotForStory,
+        build:buildRankingSnapshotFromStories
       };
 
       try{
@@ -10596,6 +11039,21 @@ svg *{
         <div class="empty-state" id="emptyState">Không tìm thấy truyện phù hợp.</div>
       </section>
 
+      <section class="section tdn-home-ranking-section home-bar-section" id="homeRankingSection" aria-labelledby="homeRankingTitle">
+        <div class="section-head tdn-home-ranking-head">
+          <h2 id="homeRankingTitle">Bảng Xếp Hạng</h2>
+        </div>
+        <nav class="tdn-home-rank-tabs" id="tdnHomeRankingTabs" aria-label="Bảng xếp hạng lượt xem trang chủ">
+          <button class="tdn-home-rank-tab is-active" type="button" data-home-rank-tab-index="0">Tuần</button>
+          <button class="tdn-home-rank-tab" type="button" data-home-rank-tab-index="1">Tháng</button>
+          <button class="tdn-home-rank-tab" type="button" data-home-rank-tab-index="2">Năm</button>
+        </nav>
+        <div class="tdn-home-rank-panels" id="tdnHomeRankingPanels">
+          <section class="tdn-home-rank-panel is-active" data-home-rank-panel-index="0"></section>
+          <section class="tdn-home-rank-panel" data-home-rank-panel-index="1"></section>
+          <section class="tdn-home-rank-panel" data-home-rank-panel-index="2"></section>
+        </div>
+      </section>
 
       <footer class="footer tdn-pro-footer tdn-footer-redesign" aria-label="Thông tin website">
         <div class="tdn-footer-logo" aria-label="Logo Trạm Đồng Nhân">
@@ -12368,11 +12826,6 @@ svg *{
     const moreFilterChapterButtons = Array.from(document.querySelectorAll('[data-more-filter-chapter]'));
     const moreFilterResetBtn = document.getElementById('moreFilterResetBtn');
     const moreFilterApplyBtn = document.getElementById('moreFilterApplyBtn');
-    const rankPage = document.getElementById('rankPage');
-    const rankList = document.getElementById('rankList');
-    const rankFeatured = document.getElementById('rankFeatured');
-    const rankMetricButtons = Array.from(document.querySelectorAll('[data-rank-metric]'));
-    const rankPeriodButtons = Array.from(document.querySelectorAll('[data-rank-period]'));
     const detailPage = document.getElementById('detailPage');
     const detailHeaderTitle = document.getElementById('detailHeaderTitle');
     const detailTopHero = document.getElementById('detailTopHero');
@@ -13098,20 +13551,6 @@ svg *{
     }
 
 
-    const RANK_METRIC_LABELS = {
-      views:'',
-      likes:'Lượt yêu thích',
-      bookmarks:'Lượt đánh dấu'
-    };
-    const RANK_PERIOD_LABELS = {
-      day:'Ngày',
-      week:'Tuần',
-      month:'Tháng',
-      alltime:'Năm'
-    };
-    let currentRankMetric = 'views';
-    let currentRankPeriod = 'day';
-
     function getStoryBookmarkBaseCount(story){
       return readStoryMetricNumber(story, [
         'bookmarkCount','bookmarks','savedCount','saveCount','markCount','marks','followCount','followers',
@@ -13140,36 +13579,11 @@ svg *{
       };
       const normalizedPeriod = period === 'alltime' ? 'alltime' : (period || 'day');
       const periodValue = readStoryMetricNumber(story, keyMap[normalizedPeriod] || keyMap.day);
-      // Ngày / Tuần / Tháng phải xếp theo lượt đánh dấu đúng mốc đó, không lấy tổng cũ để lấp vào.
-      // Năm = tổng toàn bộ lượt đánh dấu từ trước tới nay của web.
       return normalizedPeriod === 'alltime' ? (periodValue || getStoryBookmarkBaseCount(story)) : periodValue;
-    }
-
-    function getLocalStoryActionTime(mapKey, storyId){
-      try{
-        const map = JSON.parse(localStorage.getItem(mapKey) || '{}');
-        const time = Number(map && map[storyId]);
-        return Number.isFinite(time) ? time : 0;
-      }catch(error){
-        return 0;
-      }
-    }
-
-    function getLocalStoryActionPeriodBonus(mapKey, storyId, period = 'day'){
-      if(!storyId) return 0;
-      const actionTime = getLocalStoryActionTime(mapKey, storyId);
-      const now = Date.now();
-      if(period === 'alltime') return actionTime ? 1 : 0;
-      if(period === 'day') return isSameLocalDay(actionTime, now) ? 1 : 0;
-      if(period === 'week') return isWithinLastLocalDays(actionTime, 7, now) ? 1 : 0;
-      if(period === 'month') return isSameLocalMonth(actionTime, now) ? 1 : 0;
-      return 0;
     }
 
     function getStoryFavoriteAlltimeDisplayCount(story){
       if(!story) return 0;
-      // Tab Năm phải khớp 100% với số "Yêu thích" đang hiện trong Thông tin truyện.
-      // Số trong Thông tin truyện lấy từ story.likes, nên không lấy favoriteCount=0/1 để ghi đè.
       const baseCount = (typeof getStoryFavoriteDisplayCount === 'function')
         ? getStoryFavoriteDisplayCount(story)
         : getStoryFavoriteBaseCount(story);
@@ -13178,40 +13592,10 @@ svg *{
 
     function getStoryBookmarkAlltimeDisplayCount(story){
       if(!story) return 0;
-      // Tab Năm phải khớp 100% với số "Lưu / Đánh dấu" đang hiện trong Thông tin truyện.
-      // Số trong Thông tin truyện lấy từ savedCount/saveCount, nên dùng đúng cùng hàm hiển thị đó.
       const baseCount = (typeof getStorySaveDisplayCount === 'function')
         ? getStorySaveDisplayCount(story)
         : getStoryBookmarkBaseCount(story);
       return Math.max(0, Number(baseCount) || 0);
-    }
-
-    function getRankMetricValue(story, metric = currentRankMetric, period = currentRankPeriod){
-      if(metric === 'likes'){
-        // Ở tab Năm: hiện toàn bộ tổng lượt yêu thích hiện có của truyện.
-        if(period === 'alltime'){
-          return getStoryFavoriteAlltimeDisplayCount(story);
-        }
-        return getStoryFavoriteByPeriod(story, period);
-      }
-      if(metric === 'bookmarks'){
-        // Ở tab Năm: hiện toàn bộ tổng lượt đánh dấu hiện có của truyện.
-        if(period === 'alltime'){
-          return getStoryBookmarkAlltimeDisplayCount(story);
-        }
-        return getStoryBookmarkByPeriod(story, period);
-      }
-      return getStoryViewsByPeriod(story, period);
-    }
-
-    function getRankMetricIcon(metric = currentRankMetric){
-      if(metric === 'likes'){
-        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path class="heart-fill" d="M12 20.4 4.9 13.9a4.7 4.7 0 0 1 6.6-6.7L12 7.7l.5-.5a4.7 4.7 0 0 1 6.6 6.7L12 20.4Z"></path></svg>';
-      }
-      if(metric === 'bookmarks'){
-        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h8a1.4 1.4 0 0 1 1.4 1.4V18l-5.4-2.8L6.6 18V7.4A1.4 1.4 0 0 1 8 6Z"></path></svg>';
-      }
-      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.6-6 9.5-6 9.5 6 9.5 6-3.6 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.6"></circle></svg>';
     }
 
     function formatCompactRankNumber(value){
@@ -13229,189 +13613,6 @@ svg *{
         return `${trimDecimal(safeNumber / 1000)}k`;
       }
       return formatFullNumber(safeNumber);
-    }
-
-    function formatRankMetricValue(value){
-      return formatCompactRankNumber(value);
-    }
-
-    // PATCH: chỉ bảng truyện đứng đầu dùng k/m; danh sách bên dưới vẫn hiện số đầy đủ.
-    function formatRankListMetricValue(value){
-      return formatFullNumber(value);
-    }
-
-    function updateRankTabs(){
-      rankMetricButtons.forEach(button => {
-        const active = (button.dataset.rankMetric || 'views') === currentRankMetric;
-        button.classList.toggle('is-active', active);
-        button.setAttribute('aria-selected', active ? 'true' : 'false');
-      });
-      rankPeriodButtons.forEach(button => {
-        const active = (button.dataset.rankPeriod || 'day') === currentRankPeriod;
-        button.classList.toggle('is-active', active);
-        button.setAttribute('aria-selected', active ? 'true' : 'false');
-      });
-    }
-
-    function getRankStories(){
-      return getVisibleWebStories()
-        // PATCH: chỉ xếp hạng các truyện có chỉ số > 0 ở tab / mốc thời gian hiện tại.
-        // Đã bỏ tab số liệu công khai.
-        .filter(story => getRankMetricValue(story, currentRankMetric, currentRankPeriod) > 0)
-        .sort((a, b) => {
-          const byMetric = getRankMetricValue(b) - getRankMetricValue(a);
-          if(byMetric) return byMetric;
-          return (getStoryViewTotal(b) - getStoryViewTotal(a)) || (getStoryOriginalIndex(a) - getStoryOriginalIndex(b));
-        })
-        .slice(0, 50);
-    }
-
-    function makeRankStoryItem(story, index){
-      const rank = index + 1;
-      const item = document.createElement('article');
-      item.className = `rank-story-item rank-${rank}${rank <= 3 ? ' rank-top' : ''}`;
-      item.tabIndex = 0;
-      item.role = 'button';
-      item.setAttribute('aria-label', `Xem thông tin ${story.title || 'truyện'} hạng ${rank}`);
-
-      const imageUrl = typeof getStoryCoverImageUrl === 'function' ? getStoryCoverImageUrl(story) : '';
-      const coverContent = imageUrl
-        ? `<img class="rank-cover-img" src="${imageUrl}" alt="${String(story.title || 'Ảnh bìa truyện').replace(/"/g, '&quot;')}" loading="lazy" decoding="async">`
-        : `<span class="branch" aria-hidden="true"></span>${story.moon ? '<span class="moon" aria-hidden="true"></span>' : ''}<div class="cover-title">${story.short || story.title || 'Truyện'}</div>`;
-
-      const chapterCount = Number(story.chapterCount || story.totalChapters || (Array.isArray(story.chapters) ? story.chapters.length : chapters.length)) || 0;
-      const chapterText = chapterCount
-        ? `Chương ${typeof formatFullNumber === 'function' ? formatFullNumber(chapterCount) : chapterCount}`
-        : 'Chương mới';
-      const updateTime = typeof getStoryLatestChapterUpdateTime === 'function' ? getStoryLatestChapterUpdateTime(story) : 0;
-      const updateText = (updateTime && typeof formatRelativeChapterUpdateTime === 'function')
-        ? formatRelativeChapterUpdateTime(updateTime)
-        : (story.updatedText || story.updateText || story.latestText || 'Mới cập nhật');
-      const metricValue = getRankMetricValue(story, currentRankMetric, currentRankPeriod);
-      const metricLabel = RANK_METRIC_LABELS[currentRankMetric] || 'Chỉ số';
-      const metricIcon = getRankMetricIcon(currentRankMetric);
-      const metricText = formatRankListMetricValue(metricValue);
-
-      item.innerHTML = `
-        <div class="rank-number" aria-label="Hạng ${rank}"><span class="rank-number-text">${rank}</span></div>
-        <div class="cover rank-story-cover has-readable-title${imageUrl ? ' has-image' : ''}" style="${getCoverReadableStyle(story)}">${coverContent}</div>
-        <div class="rank-info">
-          <h2 class="rank-title">${story.title || story.short || 'Truyện chưa có tên'}</h2>
-          <p class="rank-subline"><span>${chapterText}</span><span aria-hidden="true">•</span><span>${updateText}</span></p>
-        </div>
-        <p class="rank-metric rank-view-metric" aria-label="${metricLabel} ${metricText}">${metricIcon}<span>${metricText}</span></p>
-      `;
-
-      const open = () => openStory(story.id);
-      item.addEventListener('click', open);
-      item.addEventListener('keydown', event => {
-        if(event.key === 'Enter' || event.key === ' '){
-          event.preventDefault();
-          open();
-        }
-      });
-      return item;
-    }
-
-    function getRankFeaturedCoverHtml(story){
-      const imageUrl = typeof getStoryCoverImageUrl === 'function' ? getStoryCoverImageUrl(story) : '';
-      if(imageUrl){
-        return `<img class="rank-featured-cover-img" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(story.title || 'Ảnh bìa truyện')}" loading="lazy" decoding="async">`;
-      }
-      return `<span class="branch" aria-hidden="true"></span>${story.moon ? '<span class="moon" aria-hidden="true"></span>' : ''}<div class="cover-title">${escapeHtml(story.short || story.title || 'Truyện')}</div>`;
-    }
-
-      const RANK_TOP1_BADGE_SRC = '';
-
-    function renderRankFeatured(story){
-      if(!rankFeatured) return;
-      if(!story){
-        rankFeatured.hidden = true;
-        rankFeatured.innerHTML = '';
-        return;
-      }
-      const genreText = (typeof getStoryGenreText === 'function' ? getStoryGenreText(story) : (story.genre || '')).trim();
-      const authorText = story.author || 'Chưa rõ tác giả';
-      // PATCH: các ô chỉ số trong bảng truyện đứng đầu luôn hiển thị tổng lượt xem / tổng yêu thích / tổng đánh dấu.
-      // Không đổi theo tab Ngày / Tuần / Tháng / Năm; áp dụng giống nhau cho cả 3 tab mục.
-      const viewsValue = getStoryViewTotal(story);
-      const likesValue = getRankMetricValue(story, 'likes', 'alltime');
-      const bookmarksValue = getRankMetricValue(story, 'bookmarks', 'alltime');
-      const coverClass = `cover rank-featured-cover has-readable-title${(typeof getStoryCoverImageUrl === 'function' && getStoryCoverImageUrl(story)) ? ' has-image' : ''}`;
-      rankFeatured.hidden = false;
-      rankFeatured.innerHTML = `
-        <button type="button" class="rank-featured-card" aria-label="Xem truyện đứng đầu ${escapeHtml(story.title || 'truyện')}">
-          <div class="${coverClass}" style="${getCoverReadableStyle(story)}">${getRankFeaturedCoverHtml(story)}</div>
-          <div class="rank-featured-info">
-            <div class="rank-featured-title-row">
-              <span class="rank-featured-top-number" aria-hidden="true">#1</span>
-              <h2 class="rank-featured-title">${escapeHtml(story.title || story.short || 'Truyện chưa có tên')}</h2>
-            </div>
-            <p class="rank-featured-meta">${escapeHtml(genreText || 'Đang cập nhật')}</p>
-            <p class="rank-featured-author">Tác giả: ${escapeHtml(authorText)}</p>
-            <div class="rank-featured-stats" aria-label="Chỉ số truyện đứng đầu">
-              <span class="rank-featured-stat">${getRankMetricIcon('views')}<span class="rank-featured-stat-text"><strong>${formatRankMetricValue(viewsValue)}</strong><small></small></span></span>
-              <span class="rank-featured-stat">${getRankMetricIcon('likes')}<span class="rank-featured-stat-text"><strong>${formatRankMetricValue(likesValue)}</strong><small>Yêu thích</small></span></span>
-              <span class="rank-featured-stat">${getRankMetricIcon('bookmarks')}<span class="rank-featured-stat-text"><strong>${formatRankMetricValue(bookmarksValue)}</strong><small>Đánh dấu</small></span></span>
-            </div>
-          </div>
-        </button>
-      `;
-      const card = rankFeatured.querySelector('.rank-featured-card');
-      card?.addEventListener('click', () => openStory(story.id));
-    }
-
-    function renderRankPage(){
-      updateRankTabs();
-      if(!rankList) return;
-      const list = getRankStories();
-      rankList.innerHTML = '';
-      if(!list.length){
-        renderRankFeatured(null);
-        rankList.innerHTML = '<p class="rank-empty">Chưa có truyện nào để xếp hạng</p>';
-        return;
-      }
-      renderRankFeatured(list[0]);
-      const rankFragment = document.createDocumentFragment();
-      list.forEach((story, index) => rankFragment.appendChild(makeRankStoryItem(story, index)));
-      rankList.appendChild(rankFragment);
-    }
-
-    function forceUnlockScrollForRankPage(){
-      try{
-        document.querySelectorAll('.page-exit-overlay-crossfade').forEach(node => node.remove());
-      }catch(error){}
-      try{
-        document.documentElement.classList.remove('reader-panel-scroll-lock', 'reader-selection-scroll-locked');
-        document.body.classList.remove(
-          'reader-panel-scroll-lock', 'reader-selection-scroll-locked',
-          'more-sort-sheet-open', 'more-genre-sheet-open',
-          'tdn-side-menu-open', 'tdn-side-settings-open',
-          'search-history-sheet-open', 'head-search-open', 'head-search-confirm-open',
-          'admin-genre-sheet-open'
-        );
-        delete document.body.dataset.moreSortSheetLocked;
-        delete document.body.dataset.moreGenreSheetLocked;
-        ['position','top','left','right','width','overflow','touch-action'].forEach(prop => {
-          document.body.style.removeProperty(prop);
-        });
-        document.documentElement.style.removeProperty('overflow');
-      }catch(error){}
-      try{
-        if(typeof moreSortSheetRestoreTimer !== 'undefined' && moreSortSheetRestoreTimer){
-          clearTimeout(moreSortSheetRestoreTimer);
-          moreSortSheetRestoreTimer = 0;
-        }
-        if(typeof moreGenreSheetRestoreTimer !== 'undefined' && moreGenreSheetRestoreTimer){
-          clearTimeout(moreGenreSheetRestoreTimer);
-          moreGenreSheetRestoreTimer = 0;
-        }
-        if(moreSortSheet){ moreSortSheet.hidden = true; moreSortSheet.setAttribute('aria-hidden', 'true'); }
-        if(moreSortSheetBackdrop) moreSortSheetBackdrop.hidden = true;
-        if(moreGenreSheet){ moreGenreSheet.hidden = true; moreGenreSheet.setAttribute('aria-hidden', 'true'); }
-        if(moreGenreSheetBackdrop) moreGenreSheetBackdrop.hidden = true;
-        if(tdnSideBackdrop){ tdnSideBackdrop.style.pointerEvents = ''; }
-      }catch(error){}
     }
 
 
@@ -13438,28 +13639,6 @@ svg *{
       }catch(error){}
     }
     window.forceCloseAdminPageForPublicNavigation = forceCloseAdminPageForPublicNavigation;
-
-    function openRankPage(options = {}){
-      forceCloseAdminPageForPublicNavigation();
-
-      // PATCH: đã xóa mục Xếp hạng. Nếu còn state/call cũ trỏ tới rank thì quay về trang chủ.
-      try{
-        const shouldPush = options && Object.prototype.hasOwnProperty.call(options, 'push') ? !!options.push : false;
-        showHome({push: shouldPush, scroll: options?.scroll !== false, restoreScroll:true, animate:false});
-      }catch(error){
-        try{
-          if(homePage) homePage.hidden = false;
-          if(morePage) morePage.hidden = true;
-          if(savedPage) savedPage.hidden = true;
-          if(detailPage) detailPage.hidden = true;
-          if(readerPage) readerPage.hidden = true;
-          readerShell?.classList.remove('reading-mode', 'detail-mode', 'list-mode', 'saved-list-mode',  'rank-list-mode');
-          document.body.style.removeProperty('overflow');
-          document.documentElement.style.removeProperty('overflow');
-        }catch(innerError){}
-      }
-    }
-
 
     function getStoryCounterLocalId(story){
       if(typeof story === 'string') return String(story || '').trim();
@@ -13615,9 +13794,18 @@ svg *{
     }
 
     function getHotStories(){
-      // Truyện hot dùng lượt xem ngầm trong tuần từ Firebase.
-      // Local chỉ giữ thứ tự hot cũ trong lúc Firebase chưa sync xong, không dùng local để quyết định hot chính.
+      // Truyện hot dùng thứ tự tự xếp hạng đã đồng bộ trong rankingSync.
+      // Firebase chỉ đọc 1 document thứ tự, không quét toàn bộ counter khi mở web.
       const list = getVisibleWebStories();
+      try{
+        if(window.TDNRankingSync && typeof window.TDNRankingSync.sortStories === 'function'){
+          const synced = window.TDNRankingSync.sortStories(list, 'week');
+          if(Array.isArray(synced) && synced.length){
+            saveFirebaseHotOrderCache(synced);
+            return synced;
+          }
+        }
+      }catch(error){}
       if(!hasFirebaseHotCounterSynced(list)){
         return sortByFirebaseHotOrderCache(list);
       }
@@ -15362,7 +15550,6 @@ svg *{
       homePage.classList.remove('has-home-player');
       if(homeListeningBar) homeListeningBar.hidden = true;
       if(morePage) morePage.hidden = true;
-      if(rankPage) rankPage.hidden = true;
       if(savedPage) savedPage.hidden = false;
       detailPage.hidden = true;
       readerPage.hidden = true;
@@ -15471,7 +15658,6 @@ svg *{
       detailPage.hidden = true;
       readerPage.hidden = true;
       if(savedPage) savedPage.hidden = true;
-      if(rankPage) rankPage.hidden = true;
       morePage.hidden = false;
       scheduleMorePageClamp();
       readerShell.classList.remove('reading-mode', 'detail-mode', 'saved-list-mode',  'rank-list-mode');
@@ -15741,52 +15927,6 @@ svg *{
       });
     });
     document.getElementById('tdnMoreHomeBtn')?.addEventListener('click', () => goHome({push:true, scroll:true}));
-    function replaceRankHistoryState(){
-      try{
-        const state = history.state;
-        if(state && state.app === APP_HISTORY_KEY && state.page === 'rank'){
-          const nextState = {
-            ...state,
-            rankMetric: currentRankMetric,
-            rankPeriod: currentRankPeriod,
-            rankScrollY: 0
-          };
-          history.replaceState(nextState, '', makePageUrl(nextState));
-        }
-      }catch(error){}
-    }
-
-    rankMetricButtons.forEach(button => {
-      button.addEventListener('click', () => {
-        const nextMetric = button.dataset.rankMetric || 'views';
-        if(!['views', 'likes', 'bookmarks'].includes(nextMetric)) return;
-        if(currentRankMetric === nextMetric){
-          updateRankTabs();
-          return;
-        }
-        currentRankMetric = nextMetric;
-        // PATCH: đổi tab thì tự quay về tab Ngày.
-        currentRankPeriod = 'day';
-        renderRankPage();
-        jumpToScrollYInstant(0);
-        replaceRankHistoryState();
-      });
-    });
-
-    rankPeriodButtons.forEach(button => {
-      button.addEventListener('click', () => {
-        const nextPeriod = button.dataset.rankPeriod || 'day';
-        if(!['day', 'week', 'month', 'alltime'].includes(nextPeriod)) return;
-        if(currentRankPeriod === nextPeriod){
-          updateRankTabs();
-          return;
-        }
-        currentRankPeriod = nextPeriod;
-        renderRankPage();
-        jumpToScrollYInstant(0);
-        replaceRankHistoryState();
-      });
-    });
     moreBackBtn?.addEventListener('click', () => {
       goBackOrFallback(() => showHome({push:false, scroll:false, restoreScroll:true}));
     });
@@ -16455,7 +16595,7 @@ svg *{
       setDetailBottomMenuOpen(false);
       const detailTabToShow = restoreScroll ? getSavedDetailTabId(story.id, restoreState) : 'detailIntroSection';
       setActiveDetailTab(detailTabToShow);
-      const openStoryFromPage = fromHomeBanner ? 'home' : (homePage && !homePage.hidden ? 'home' : (morePage && !morePage.hidden ? 'more' : (rankPage && !rankPage.hidden ? 'rank' : 'detail')));
+      const openStoryFromPage = fromHomeBanner ? 'home' : (homePage && !homePage.hidden ? 'home' : (morePage && !morePage.hidden ? 'more' : 'detail'));
       const activeSearchKeyword = searchInput ? String(searchInput.value || '').trim() : '';
       if(openStoryFromPage === 'home' && activeSearchKeyword.length >= 2){
         saveHistorySearchStory(story.id, activeSearchKeyword);
@@ -16464,9 +16604,6 @@ svg *{
       const openStoryHomeTrackScrolls = fromHomeBanner ? Object.create(null) : lastHomeTrackScrolls;
       const openStoryMoreKey = currentMoreKey;
       const openStoryMoreScrollY = getSavedMoreScrollY(currentMoreKey);
-      const openStoryRankMetric = currentRankMetric;
-      const openStoryRankPeriod = currentRankPeriod;
-      const openStoryRankScrollY = rankPage && !rankPage.hidden ? getWindowScrollY() : 0;
       homePage.hidden = true;
       homePage.classList.remove('has-home-player');
       if(homeListeningBar) homeListeningBar.hidden = true;
@@ -16477,7 +16614,6 @@ svg *{
       try{ setMoreMenuOpen(false, {immediate:true}); }catch(error){}
       try{ setMoreViewPanelOpen(false, {immediate:true}); }catch(error){}
       if(savedPage) savedPage.hidden = true;
-      if(rankPage) rankPage.hidden = true;
       readerPage.hidden = true;
       detailPage.hidden = false;
       readerShell.classList.remove('reading-mode', 'list-mode', 'saved-list-mode',  'rank-list-mode');
@@ -16494,9 +16630,6 @@ svg *{
           homeTrackScrolls:openStoryHomeTrackScrolls,
           moreKey:openStoryMoreKey,
           moreScrollY:openStoryMoreScrollY,
-          rankMetric:openStoryRankMetric,
-          rankPeriod:openStoryRankPeriod,
-          rankScrollY:openStoryRankScrollY,
           detailScrollY:restoreScroll ? getSavedDetailScrollY(story.id, restoreState) : 0,
           detailActiveTab:detailTabToShow
         }, replace);
@@ -16954,7 +17087,6 @@ svg *{
       if(homeListeningBar) homeListeningBar.hidden = true;
       if(morePage) morePage.hidden = true;
       if(savedPage) savedPage.hidden = true;
-      if(rankPage) rankPage.hidden = true;
       detailPage.hidden = true;
       readerPage.hidden = false;
       readerShell.classList.remove('detail-mode', 'list-mode', 'saved-list-mode', 'history-list-mode');
@@ -19805,7 +19937,6 @@ svg *{
     function saveVisiblePageScrollBeforeNavigation(){
       if(homePage && !homePage.hidden) saveHomeScrollPosition();
       if(morePage && !morePage.hidden) saveMoreScrollPosition();
-      if(rankPage && !rankPage.hidden) saveRankScrollPosition();
       if(detailPage && !detailPage.hidden) saveDetailScrollPosition(currentStory?.id);
     }
 
@@ -19857,18 +19988,6 @@ svg *{
       });
     }
 
-
-    function saveRankScrollPosition(){
-      if(!rankPage || rankPage.hidden) return;
-      const top = Math.max(0, Math.round(getWindowScrollY()));
-      try{
-        const state = history.state;
-        if(state && state.app === APP_HISTORY_KEY && state.page === 'rank'){
-          history.replaceState({...state, rankScrollY:top, rankMetric:currentRankMetric, rankPeriod:currentRankPeriod}, '', makePageUrl(state));
-        }
-      }catch(error){}
-    }
-
     function makePageUrl(state){
       // Không dùng location.hash/anchor cho điều hướng nội bộ, tránh trình duyệt tự nhảy scroll.
       return window.location.pathname + window.location.search;
@@ -19902,7 +20021,6 @@ svg *{
     function getVisibleRoutePage(){
       if(homePage && !homePage.hidden) return homePage;
       if(morePage && !morePage.hidden) return morePage;
-      if(rankPage && !rankPage.hidden) return rankPage;
       if(savedPage && !savedPage.hidden) return savedPage;
       if(detailPage && !detailPage.hidden) return detailPage;
       if(readerPage && !readerPage.hidden) return readerPage;
@@ -19940,12 +20058,10 @@ svg *{
       removePageExitOverlay();
       homePage?.classList.remove('home-restore-prep', 'tdn-route-enter', 'page-enter-soft', 'page-enter-crossfade', 'page-exit-soft', 'page-exit-shutter', 'page-exit-crossfade');
       morePage?.classList.remove('tdn-route-enter', 'page-enter-soft', 'page-enter-crossfade', 'page-exit-soft', 'page-exit-shutter', 'page-exit-crossfade');
-      rankPage?.classList.remove('tdn-route-enter', 'page-enter-soft', 'page-enter-crossfade', 'page-exit-soft', 'page-exit-shutter', 'page-exit-crossfade');
       savedPage?.classList.remove('tdn-route-enter', 'page-enter-soft', 'page-enter-crossfade', 'page-exit-soft', 'page-exit-shutter', 'page-exit-crossfade');
       detailPage?.classList.remove('tdn-route-enter', 'page-enter-soft', 'page-enter-crossfade', 'page-exit-soft', 'page-exit-shutter', 'page-exit-crossfade');
       readerPage?.classList.remove('tdn-route-enter', 'page-enter-soft', 'page-enter-crossfade', 'page-exit-soft', 'page-exit-shutter', 'page-exit-crossfade');
       clearPageExitInline(morePage);
-      clearPageExitInline(rankPage);
       clearPageExitInline(savedPage);
       clearPageExitInline(detailPage);
       clearPageExitInline(readerPage);
@@ -19975,7 +20091,6 @@ svg *{
       homePage.classList.add('home-restore-prep');
       if(morePage) morePage.hidden = true;
       if(savedPage) savedPage.hidden = true;
-      if(rankPage) rankPage.hidden = true;
       readerShell.classList.remove('reading-mode');
       readerShell.classList.remove('detail-mode');
       readerShell.classList.remove('list-mode');
@@ -20007,7 +20122,6 @@ svg *{
       refreshHomeSections();
       if(morePage) morePage.hidden = true;
       if(savedPage) savedPage.hidden = true;
-      if(rankPage) rankPage.hidden = true;
       detailPage.hidden = true;
       readerPage.hidden = true;
       morePage?.classList.remove('page-exit-soft', 'page-enter-soft', 'page-enter-crossfade', 'page-exit-shutter', 'page-exit-crossfade');
@@ -20016,7 +20130,6 @@ svg *{
       readerPage.classList.remove('page-exit-soft', 'page-enter-soft', 'page-enter-crossfade', 'page-exit-shutter', 'page-exit-crossfade');
       homePage.classList.remove('page-enter-soft', 'page-enter-crossfade', 'page-exit-soft', 'page-exit-shutter', 'page-exit-crossfade');
       clearPageExitInline(morePage);
-      clearPageExitInline(rankPage);
       clearPageExitInline(detailPage);
       clearPageExitInline(readerPage);
       if(revealSoft) homePage.classList.add('home-restore-prep');
@@ -27596,7 +27709,6 @@ line-height:1.35 !important;
     refreshStorySectionsAfterLocalSave();
     try{ if(typeof window.refreshHomeSections === 'function') window.refreshHomeSections(); }catch(error){}
     try{ if(typeof window.initHeroSlider === 'function') window.initHeroSlider(); }catch(error){}
-    try{ if(typeof renderRankPage === 'function' && typeof rankPage !== 'undefined' && rankPage && !rankPage.hidden) renderRankPage(); }catch(error){}
     try{ if(typeof renderMoreStories === 'function' && typeof morePage !== 'undefined' && morePage && !morePage.hidden) renderMoreStories(); }catch(error){}
     try{
       const headPage = document.getElementById('headSearchPage');
@@ -28346,7 +28458,7 @@ line-height:1.35 !important;
   }
 
   function hideKnownPages(){
-    ['homePage','savedPage','morePage','rankPage','detailPage','readerPage'].forEach(id => {
+    ['homePage','savedPage','morePage','detailPage','readerPage'].forEach(id => {
       const node = document.getElementById(id);
       if(node) node.hidden = true;
     });
@@ -28610,7 +28722,6 @@ line-height:1.35 !important;
       refreshStats();
       refreshStorySectionsAfterLocalSave();
       try{ if(typeof window.refreshHomeSections === 'function') window.refreshHomeSections(); }catch(error){}
-      try{ if(typeof renderRankPage === 'function' && rankPage && !rankPage.hidden) renderRankPage(); }catch(error){}
       try{ if(typeof renderMoreStories === 'function' && morePage && !morePage.hidden) renderMoreStories(); }catch(error){}
       try{
         const headPage = document.getElementById('headSearchPage');
@@ -28839,30 +28950,6 @@ height:20px !important;
 }
 }</style>
 
-<style id="remove-rank-page-final-patch">.shortcut-grid{
-grid-template-columns:repeat(3, minmax(0,1fr)) !important;
-}.shortcut-card[aria-label="Xếp hạng"],
-#rankPage,
-.rank-page{
-display:none !important;
-}</style>
-<script id="remove-rank-page-final-patch-script">(function(){
-  function removeRankEntry(){
-    try{
-      document.querySelectorAll('.shortcut-card[aria-label="Xếp hạng"], #rankPage').forEach(function(node){ node.remove(); });
-      document.body.classList.remove('rank-list-mode');
-      document.documentElement.style.removeProperty('overflow');
-      document.body.style.removeProperty('overflow');
-      document.body.style.removeProperty('position');
-      document.body.style.removeProperty('touch-action');
-    }catch(error){}
-  }
-  removeRankEntry();
-  if(document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', removeRankEntry, {once:true});
-  }
-})();
-</script>
 
 
 <style id="detail-chapter-single-frame-patch">#detailChapterSection .chapter-list-wrap{
@@ -36583,7 +36670,7 @@ body.reader-warm .tdn-library-remove{
   }
 
   function hideNormalPagesForLibrary(){
-    ['homePage','morePage','savedPage','rankPage','adminPage','detailPage','readerPage','tdnMenuRankingPage'].forEach(function(id){
+    ['homePage','morePage','savedPage','adminPage','detailPage','readerPage','tdnMenuRankingPage'].forEach(function(id){
       var el = byId(id);
       if(el) el.hidden = true;
     });
@@ -37187,289 +37274,96 @@ transition:none !important;
 })();
 </script>
 
-<style id="tdn-menu-ranking-page-style">#tdnMenuRankingPage[hidden]{ display:none !important; }#tdnMenuRankingPage{
-display:block;
-width:100% !important;
-max-width:none !important;
-min-height:0;
-margin:0 !important;
-padding:0 !important;
-overflow:visible;
-background:#f7f8fb;
-color:#182335;
-font-family:inherit;
-box-sizing:border-box;
-}body.reader-dark #tdnMenuRankingPage{
-background:#0f1726;
-color:#eef2fb;
-}.tdn-rank-page-shell{
-width:100%;
-max-width:none;
-min-height:0;
-margin:0;
-padding:0;
-display:block;
-background:linear-gradient(180deg,#ffffff 0%,#f6f7fb 100%);
-}body.reader-dark .tdn-rank-page-shell{
-background:linear-gradient(180deg,#101827 0%,#0d1422 100%);
-}.tdn-rank-scroll{
-flex:0 0 auto;
-width:100%;
-max-width:none;
-min-height:0;
-overflow:visible;
-padding:0 0 8px;
-margin:0;
-box-sizing:border-box;
-}.tdn-rank-sticky-head{
-position:sticky;
-top:0;
-z-index:20;
-background:linear-gradient(180deg,#f7f8fb 0%,rgba(247,248,251,.98) 100%);
-border-bottom:1px solid rgba(24,35,53,.10);
-}body.reader-dark .tdn-rank-sticky-head{
-background:linear-gradient(180deg,#0f1726 0%,rgba(15,23,38,.98) 100%);
-border-bottom-color:rgba(255,255,255,.08);
-}.tdn-rank-tabs{
-display:grid;
-grid-template-columns:repeat(3,minmax(0,1fr));
-gap:0;
-padding:16px 0 0;
-background:transparent;
-border-bottom:1px solid rgba(24,35,53,.12);
-}body.reader-dark .tdn-rank-tabs{
-border-bottom-color:rgba(255,255,255,.10);
-}.tdn-rank-tab{
-position:relative;
-border:0;
-background:transparent;
-color:#303742;
-padding:0 2px 12px;
-min-width:0;
-min-height:42px;
-font:inherit;
-font-size:17px;
-line-height:1.1;
-font-weight:650;
-white-space:nowrap;
-text-align:center;
-overflow:hidden;
-text-overflow:ellipsis;
-}.tdn-rank-tab.is-active{ color:#7c3aed; font-weight:850; }.tdn-rank-tab.is-active::after{
-content:"";
-position:absolute;
-left:0; right:0; bottom:-1px;
-height:4px;
-border-radius:999px 999px 0 0;
-background:#7c3aed;
-}body.reader-dark .tdn-rank-tab{ color:#cbd5e1; }body.reader-dark .tdn-rank-tab.is-active{ color:#c4b5fd; }body.reader-dark .tdn-rank-tab.is-active::after{ background:#a78bfa; }.tdn-rank-panels{
-position:relative;
-width:100%;
-max-width:none;
-overflow:hidden;
-touch-action:pan-y;
-scrollbar-width:none;
-transition:height .26s ease;
-will-change:height;
-}.tdn-rank-panels::-webkit-scrollbar{ display:none; }.tdn-rank-panel{
-display:block;
-position:absolute;
-top:0;
-left:0;
-width:100%;
-max-width:none;
-min-width:100%;
-box-sizing:border-box;
-transform:translate3d(100%,0,0);
-transition:transform .32s cubic-bezier(.22,.72,.18,1);
-will-change:transform;
-pointer-events:none;
-}.tdn-rank-panel.is-active{
-pointer-events:auto;
-}.tdn-rank-board{
-width:100%;
-max-width:none;
-margin:0;
-background:#ffffff;
-border-top:1px solid rgba(24,35,53,.10);
-border-bottom:1px solid rgba(24,35,53,.10);
-border-left:0;
-border-right:0;
-border-radius:0;
-overflow:hidden;
-box-shadow:none;
-box-sizing:border-box;
-}body.reader-dark .tdn-rank-board{
-background:#121d30;
-border-top-color:rgba(255,255,255,.10);
-border-bottom-color:rgba(255,255,255,.10);
-box-shadow:none;
-}.tdn-rank-item{
-width:100%;
-display:grid;
-grid-template-columns:44px minmax(0,1fr);
-align-items:center;
-gap:10px;
-min-height:56px;
-padding:0 14px 0 10px;
-border:0;
-border-bottom:1px solid rgba(24,35,53,.08);
-background:transparent;
-color:inherit;
-text-align:left;
-font:inherit;
-box-sizing:border-box;
-}.tdn-rank-item:last-child{ border-bottom:0; }body.reader-dark .tdn-rank-item{ border-bottom-color:rgba(255,255,255,.08); }.tdn-rank-item.is-top{
-grid-template-columns:44px minmax(0,1fr) 92px;
-align-items:start;
-gap:12px;
-min-height:132px;
-padding:14px 14px 14px 10px;
-}.tdn-rank-rank{
-display:flex;
-align-items:center;
-justify-content:center;
-min-height:100%;
-}.tdn-rank-rank-badge{
-display:inline-flex;
-align-items:center;
-justify-content:center;
-width:30px;
-height:30px;
-font-size:17px;
-line-height:1;
-font-weight:900;
-color:#1f2937;
-border-radius:10px;
-}body.reader-dark .tdn-rank-rank-badge{ color:#f8fafc; }.tdn-rank-item.is-medal .tdn-rank-rank-badge{
-width:32px;
-height:40px;
-border-radius:0;
-clip-path:polygon(50% 0,88% 10%,88% 76%,50% 100%,12% 76%,12% 10%);
-color:#111827;
-box-shadow:0 8px 16px rgba(24,35,53,.08);
-}.tdn-rank-item.rank-1 .tdn-rank-rank-badge{ background:linear-gradient(180deg,#ffd84f 0%,#f7b801 100%); }.tdn-rank-item.rank-2 .tdn-rank-rank-badge{ background:linear-gradient(180deg,#f2f4f7 0%,#cfd8e3 100%); }.tdn-rank-item.rank-3 .tdn-rank-rank-badge{ background:linear-gradient(180deg,#f4c58b 0%,#d39a52 100%); }.tdn-rank-item-title-wrap{
-min-width:0;
-display:flex;
-flex-direction:column;
-align-items:flex-start;
-}.tdn-rank-item-title{
-min-width:0;
-color:#1f2937;
-font-size:15px;
-line-height:1.35;
-font-weight:750;
-display:-webkit-box;
--webkit-box-orient:vertical;
--webkit-line-clamp:2;
-overflow:hidden;
-word-break:break-word;
-}body.reader-dark .tdn-rank-item-title{ color:#f8fafc; }.tdn-rank-item.is-top .tdn-rank-item-title{
-font-size:17px;
-line-height:1.35;
-font-weight:850;
--webkit-line-clamp:3;
-}.tdn-rank-item-meta{
-margin-top:8px;
-display:flex;
-align-items:center;
-gap:6px;
-min-width:0;
-color:#4b5563;
-font-size:13px;
-line-height:1.25;
-}.tdn-rank-item-meta span{
-min-width:0;
-overflow:hidden;
-text-overflow:ellipsis;
-white-space:nowrap;
-}.tdn-rank-item-meta svg{ width:16px; height:16px; flex:0 0 auto; stroke-width:2; }.tdn-rank-item-meta.is-genre{ color:#6d28d9; }body.reader-dark .tdn-rank-item-meta{ color:#cbd5e1; }body.reader-dark .tdn-rank-item-meta.is-genre{ color:#c4b5fd; }.tdn-rank-item-cover{
-width:92px;
-aspect-ratio:1/1.24;
-overflow:hidden;
-border-radius:12px;
-background:linear-gradient(135deg,#edf2f7,#e5e7eb);
-box-shadow:0 10px 20px rgba(22,33,54,.08);
-}body.reader-dark .tdn-rank-item-cover{
-background:linear-gradient(135deg,#1e2a42,#111827);
-box-shadow:none;
-}.tdn-rank-item-cover img{
-width:100%;
-height:100%;
-object-fit:cover;
-display:block;
-}.tdn-rank-cover-fallback{
-width:100%;
-height:100%;
-display:flex;
-align-items:flex-end;
-justify-content:center;
-padding:10px;
-box-sizing:border-box;
-text-align:center;
-font-size:13px;
-line-height:1.22;
-font-weight:900;
-color:#182335;
-background:linear-gradient(180deg,rgba(255,255,255,.12),rgba(255,255,255,.88));
-}body.reader-dark .tdn-rank-cover-fallback{
-color:#eef2fb;
-background:linear-gradient(180deg,rgba(15,23,42,.12),rgba(15,23,42,.84));
-}.tdn-rank-empty{
-margin:0;
-padding:20px 16px;
-text-align:center;
-color:#6b7280;
-font-size:14px;
-}body.reader-dark .tdn-rank-empty{ color:#94a3b8; }.tdn-rank-more-wrap{
-display:flex;
-align-items:center;
-justify-content:center;
-width:100%;
-padding:12px 16px 12px;
-box-sizing:border-box;
-background:transparent;
-}body.reader-dark .tdn-rank-more-wrap{
-background:transparent;
-}.tdn-rank-more-btn{
-display:inline-flex;
-align-items:center;
-justify-content:center;
-min-width:148px;
-min-height:46px;
-padding:0 22px;
-border-radius:12px;
-border:1px solid rgba(24,35,53,.20);
-background:#ffffff;
-color:#1f2937;
-font:inherit;
-font-size:15px;
-line-height:1;
-font-weight:750;
-box-shadow:0 10px 22px rgba(22,33,54,.06);
-}.tdn-rank-more-btn:active{
-transform:translateY(1px);
-}body.reader-dark .tdn-rank-more-btn{
-background:#121d30;
-color:#f8fafc;
-border-color:rgba(255,255,255,.16);
-box-shadow:none;
-}.reader-shell.rank-list-mode > .site-header{
-display:block !important;
-}.reader-shell.rank-list-mode > .site-header .header-main-row{
-display:grid !important;
-}.reader-shell.rank-list-mode #tdnMenuRankingPage{
-margin-top:0 !important;
-}</style>
+<style id="tdn-menu-ranking-page-style">
+#tdnMenuRankingPage[hidden]{display:none !important;}
+#tdnMenuRankingPage{
+  display:block;width:100% !important;max-width:none !important;min-height:0;margin:0 !important;padding:0 !important;overflow:visible;background:#f7f8fb;color:#182335;font-family:inherit;box-sizing:border-box;
+}
+body.reader-dark #tdnMenuRankingPage{background:#0f1726;color:#eef2fb;}
+.tdn-rank-page-shell{width:100%;max-width:none;min-height:0;margin:0;padding:0;display:block;background:linear-gradient(180deg,#ffffff 0%,#f6f7fb 100%);}
+body.reader-dark .tdn-rank-page-shell{background:linear-gradient(180deg,#101827 0%,#0d1422 100%);}
+.tdn-rank-scroll{width:100%;max-width:none;min-height:0;overflow:visible;padding:0 0 8px;margin:0;box-sizing:border-box;}
+.tdn-rank-sticky-head{position:sticky;top:0;z-index:20;background:linear-gradient(180deg,#f7f8fb 0%,rgba(247,248,251,.98) 100%);border-bottom:1px solid rgba(24,35,53,.10);}
+body.reader-dark .tdn-rank-sticky-head{background:linear-gradient(180deg,#0f1726 0%,rgba(15,23,38,.98) 100%);border-bottom-color:rgba(255,255,255,.08);}
+.tdn-rank-tabs,.tdn-home-rank-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;background:transparent;border-bottom:1px solid rgba(24,35,53,.12);}
+.tdn-rank-tabs{padding:16px 0 0;}
+.tdn-home-rank-tabs{padding:0;margin:0 0 8px;}
+body.reader-dark .tdn-rank-tabs,body.reader-dark .tdn-home-rank-tabs{border-bottom-color:rgba(255,255,255,.10);}
+.tdn-rank-tab,.tdn-home-rank-tab{position:relative;border:0;background:transparent;color:#303742;padding:0 2px 12px;min-width:0;min-height:42px;font:inherit;font-size:17px;line-height:1.1;font-weight:650;white-space:nowrap;text-align:center;overflow:hidden;text-overflow:ellipsis;-webkit-tap-highlight-color:transparent;}
+.tdn-home-rank-tab{font-size:16px;min-height:40px;}
+.tdn-rank-tab.is-active,.tdn-home-rank-tab.is-active{color:#be185d;font-weight:850;}
+.tdn-rank-tab.is-active::after,.tdn-home-rank-tab.is-active::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:4px;border-radius:999px 999px 0 0;background:#d83a7c;}
+body.reader-dark .tdn-rank-tab,body.reader-dark .tdn-home-rank-tab{color:#cbd5e1;}
+body.reader-dark .tdn-rank-tab.is-active,body.reader-dark .tdn-home-rank-tab.is-active{color:#f9a8d4;}
+body.reader-dark .tdn-rank-tab.is-active::after,body.reader-dark .tdn-home-rank-tab.is-active::after{background:#f472b6;}
+.tdn-rank-panels{position:relative;width:100%;overflow:hidden;touch-action:pan-y;}
+.tdn-rank-panel{position:absolute;inset:0 auto auto 0;width:100%;min-height:1px;box-sizing:border-box;padding:0 0 18px;transform:translate3d(100%,0,0);will-change:transform;}
+.tdn-rank-panel.is-active{position:relative;}
+.tdn-rank-board{display:flex;flex-direction:column;gap:0;padding:0;background:#fff;border-top:1px solid rgba(24,35,53,.07);border-bottom:1px solid rgba(24,35,53,.07);box-sizing:border-box;}
+body.reader-dark .tdn-rank-board{background:#0f1726;border-color:rgba(255,255,255,.08);}
+.tdn-rank-item{appearance:none;width:100%;min-width:0;border:0;border-bottom:1px solid rgba(24,35,53,.08);background:transparent;color:inherit;display:grid;grid-template-columns:78px minmax(0,1fr);align-items:center;gap:0;padding:10px 22px 10px 8px;text-align:left;font:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.tdn-rank-item:last-child{border-bottom:0;}
+body.reader-dark .tdn-rank-item{border-bottom-color:rgba(255,255,255,.08);}
+.tdn-rank-item.is-top{grid-template-columns:80px minmax(0,1fr) 132px;gap:0;padding-top:18px;padding-bottom:18px;align-items:center;}
+.tdn-rank-rank{display:flex;align-items:center;justify-content:center;align-self:stretch;}
+.tdn-rank-rank-badge{width:42px;height:54px;display:inline-flex;align-items:center;justify-content:center;background:#eef2f7;color:#1f2937;clip-path:polygon(50% 0,100% 18%,100% 82%,50% 100%,0 82%,0 18%);font-weight:850;font-size:20px;line-height:1;}
+.tdn-rank-item.rank-1 .tdn-rank-rank-badge{background:linear-gradient(180deg,#ffe474,#f4bd23);color:#53390b;}
+.tdn-rank-item.rank-2 .tdn-rank-rank-badge{background:linear-gradient(180deg,#f5f7fb,#d9e0ea);color:#263247;}
+.tdn-rank-item.rank-3 .tdn-rank-rank-badge{background:linear-gradient(180deg,#ffd991,#d89634);color:#4c2c0c;}
+.tdn-rank-item-title-wrap{display:flex;flex-direction:column;min-width:0;gap:8px;padding-right:8px;}
+.tdn-rank-item-title{display:block;min-width:0;color:#222a36;font-weight:850;font-size:20px;line-height:1.3;letter-spacing:.01em;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+.tdn-rank-item:not(.is-top) .tdn-rank-item-title{font-size:18px;-webkit-line-clamp:2;}
+body.reader-dark .tdn-rank-item-title{color:#eef2fb;}
+.tdn-rank-item-meta{display:flex;align-items:center;gap:8px;min-width:0;color:#6b7280;font-size:15px;line-height:1.2;font-weight:540;}
+.tdn-rank-item-meta svg{width:18px;height:18px;flex:0 0 auto;stroke-width:2;}
+.tdn-rank-item-meta span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tdn-rank-item-meta.is-genre{color:#7c3aed;font-weight:650;}
+body.reader-dark .tdn-rank-item-meta{color:#b9c4d6;}body.reader-dark .tdn-rank-item-meta.is-genre{color:#f9a8d4;}
+.tdn-rank-item-cover{width:120px;height:120px;display:block;border-radius:12px;overflow:hidden;background:#e5e7eb;box-shadow:0 10px 22px rgba(24,35,53,.10);}
+.tdn-rank-item-cover img{width:100%;height:100%;display:block;object-fit:cover;}
+.tdn-rank-cover-fallback{width:100%;height:100%;display:flex;align-items:center;justify-content:center;text-align:center;padding:10px;color:#6b7280;font-size:15px;font-weight:800;background:#f1f5f9;box-sizing:border-box;}
+body.reader-dark .tdn-rank-cover-fallback{background:#1e293b;color:#cbd5e1;}
+.tdn-rank-empty{margin:0;padding:28px 16px;color:#6b7280;text-align:center;font-weight:650;}
+body.reader-dark .tdn-rank-empty{color:#94a3b8;}
+.tdn-rank-more-wrap{display:flex;justify-content:center;padding:14px 16px 22px;background:#fff;}
+body.reader-dark .tdn-rank-more-wrap{background:#0f1726;}
+.tdn-rank-more-btn{height:42px;min-width:136px;border-radius:999px;border:1px solid rgba(24,35,53,.12);background:#fff;color:#182335;font:inherit;font-size:15px;font-weight:750;box-shadow:0 10px 22px rgba(22,33,54,.06);cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.tdn-rank-more-btn:active{transform:translateY(1px);}body.reader-dark .tdn-rank-more-btn{background:#121d30;color:#f8fafc;border-color:rgba(255,255,255,.16);box-shadow:none;}
+.reader-shell.rank-list-mode > .site-header{display:block !important;}.reader-shell.rank-list-mode > .site-header .header-main-row{display:grid !important;}.reader-shell.rank-list-mode #tdnMenuRankingPage{margin-top:0 !important;}
+#homePage .tdn-home-ranking-section{display:block !important;margin:18px 0 0 !important;padding:0 !important;border:0 !important;background:transparent !important;}
+#homePage .tdn-home-ranking-head{margin-bottom:0 !important;}
+#homePage .tdn-home-ranking-head h2{width:100%;margin:0 !important;padding:18px 20px !important;background:linear-gradient(90deg,#be185d,#db3d83) !important;color:#fff !important;text-transform:uppercase !important;letter-spacing:.04em !important;border-radius:0 !important;font-weight:900 !important;}
+#homePage .tdn-home-rank-panels{display:block;width:100%;background:#fff;border:1px solid rgba(24,35,53,.08);border-top:0;box-sizing:border-box;}
+body.reader-dark #homePage .tdn-home-rank-panels{background:#0f1726;border-color:rgba(255,255,255,.08);}
+#homePage .tdn-home-rank-panel{display:none;}
+#homePage .tdn-home-rank-panel.is-active{display:block;}
+#homePage .tdn-home-rank-panel .tdn-rank-board{border-top:0;border-bottom:0;}
+#homePage .tdn-home-rank-panel .tdn-rank-item{padding-right:12px;}
+#homePage .tdn-home-rank-panel .tdn-rank-item.is-top{grid-template-columns:70px minmax(0,1fr) 106px;padding-top:14px;padding-bottom:14px;}
+#homePage .tdn-home-rank-panel .tdn-rank-rank-badge{width:38px;height:50px;font-size:18px;}
+#homePage .tdn-home-rank-panel .tdn-rank-item-title{font-size:18px;}
+#homePage .tdn-home-rank-panel .tdn-rank-item:not(.is-top) .tdn-rank-item-title{font-size:17px;}
+#homePage .tdn-home-rank-panel .tdn-rank-item-cover{width:96px;height:96px;border-radius:12px;}
+@media (max-width:560px){
+  .tdn-rank-item{grid-template-columns:70px minmax(0,1fr);padding:10px 14px 10px 4px;}
+  .tdn-rank-item.is-top{grid-template-columns:70px minmax(0,1fr) 104px;padding-right:10px;}
+  .tdn-rank-item-title{font-size:18px;}.tdn-rank-item:not(.is-top) .tdn-rank-item-title{font-size:17px;}
+  .tdn-rank-item-cover{width:96px;height:96px;}
+  .tdn-rank-rank-badge{width:38px;height:50px;font-size:18px;}
+  #homePage .tdn-home-rank-panel .tdn-rank-item.is-top{grid-template-columns:60px minmax(0,1fr) 88px;}
+  #homePage .tdn-home-rank-panel .tdn-rank-item-cover{width:82px;height:82px;}
+  #homePage .tdn-home-rank-panel .tdn-rank-rank-badge{width:34px;height:46px;font-size:17px;}
+}
+</style>
 
 <main class="tdn-rank-page" id="tdnMenuRankingPage" hidden aria-hidden="true">
   <div class="tdn-rank-page-shell">
     <main class="tdn-rank-scroll">
       <div class="tdn-rank-sticky-head">
-        <nav class="tdn-rank-tabs" id="tdnMenuRankingTabs" aria-label="Bảng xếp hạng">
-          <button class="tdn-rank-tab is-active" type="button" data-rank-tab-index="0">Đọc Nhiều</button>
-          <button class="tdn-rank-tab" type="button" data-rank-tab-index="1">Thịnh Hành</button>
-          <button class="tdn-rank-tab" type="button" data-rank-tab-index="2">Đánh Dấu</button>
+        <nav class="tdn-rank-tabs" id="tdnMenuRankingTabs" aria-label="Bảng xếp hạng lượt xem">
+          <button class="tdn-rank-tab is-active" type="button" data-rank-tab-index="0">Tuần</button>
+          <button class="tdn-rank-tab" type="button" data-rank-tab-index="1">Tháng</button>
+          <button class="tdn-rank-tab" type="button" data-rank-tab-index="2">Năm</button>
         </nav>
       </div>
       <div class="tdn-rank-panels" id="tdnMenuRankingPanels">
@@ -37482,22 +37376,34 @@ margin-top:0 !important;
 </main>
 
 <script id="tdn-menu-ranking-page-script">(function(){
+  'use strict';
+
+  var HOME_LIMIT = 10;
+  var PAGE_INITIAL_LIMIT = 10;
+  var PAGE_LOAD_STEP = 5;
+  var RANK_SYNC_LOADING_TEXT = 'Đang lấy thứ tự xếp hạng đã đồng bộ...';
+  var RANK_EMPTY_TEXT = 'Chưa có truyện nào để xếp hạng.';
+
   var page = document.getElementById('tdnMenuRankingPage');
-  var closeBtn = document.getElementById('tdnRankCloseBtn');
-  var logoHomeBtn = document.getElementById('tdnRankLogoHomeBtn');
   var tabsWrap = document.getElementById('tdnMenuRankingTabs');
   var panelsWrap = document.getElementById('tdnMenuRankingPanels');
   var readerShell = document.getElementById('readerShell');
-  if(!page || !tabsWrap || !panelsWrap) return;
+  var homeSection = document.getElementById('homeRankingSection');
+  var homeTabsWrap = document.getElementById('tdnHomeRankingTabs');
+  var homePanelsWrap = document.getElementById('tdnHomeRankingPanels');
+  if(!page && !homeSection) return;
 
-  if(readerShell && page.parentElement !== readerShell){
+  if(readerShell && page && page.parentElement !== readerShell){
     var beforeNode = document.getElementById('adminPage') || document.getElementById('detailPage') || document.getElementById('readerPage');
     readerShell.insertBefore(page, beforeNode || null);
   }
 
-  var tabs = Array.prototype.slice.call(tabsWrap.querySelectorAll('[data-rank-tab-index]'));
-  var panels = Array.prototype.slice.call(panelsWrap.querySelectorAll('[data-rank-panel-index]'));
+  var tabs = tabsWrap ? Array.prototype.slice.call(tabsWrap.querySelectorAll('[data-rank-tab-index]')) : [];
+  var panels = panelsWrap ? Array.prototype.slice.call(panelsWrap.querySelectorAll('[data-rank-panel-index]')) : [];
+  var homeTabs = homeTabsWrap ? Array.prototype.slice.call(homeTabsWrap.querySelectorAll('[data-home-rank-tab-index]')) : [];
+  var homePanels = homePanelsWrap ? Array.prototype.slice.call(homePanelsWrap.querySelectorAll('[data-home-rank-panel-index]')) : [];
   var activeIndex = 0;
+  var homeActiveIndex = 0;
   var visibleCounts = Object.create(null);
   var swipeStartX = 0;
   var swipeStartY = 0;
@@ -37505,294 +37411,302 @@ margin-top:0 !important;
   var swipeTracking = false;
   var swipeIsHorizontal = false;
   var suppressClickUntil = 0;
+  var renderTimer = 0;
+  var refreshWrapped = false;
+  var lastCounterSyncRequestAt = 0;
+  var counterSyncPromise = null;
 
   var personIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="7.5" r="3.5"></circle><path d="M5 21a7 7 0 0 1 14 0"></path></svg>';
   var tagIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13 13 20 4 11V4h7l9 9Z"></path><circle cx="8.5" cy="8.5" r="1.2"></circle></svg>';
 
   var configs = [
-    {
-      label:'Đọc Nhiều',
-      getValue:function(story){
-        return getStoryViewTotalFallback(story);
-      }
-    },
-    {
-      label:'Thịnh Hành',
-      getValue:function(story){
-        var weekViews = getStoryViewRangeTotal(story, 'week') || getStoryViewTotalFallback(story);
-        var bookmarks = getStoryBookmarkTotalFallback(story);
-        return Math.max(0, weekViews + (bookmarks * 5));
-      }
-    },
-    {
-      label:'Đánh Dấu',
-      getValue:function(story){
-        return getStoryBookmarkTotalFallback(story);
-      }
-    }
+    {label:'Tuần', range:'week', getValue:function(story){ return getSyncedViewValue(story, 'week'); }},
+    {label:'Tháng', range:'month', getValue:function(story){ return getSyncedViewValue(story, 'month'); }},
+    {label:'Năm', range:'alltime', getValue:function(story){ return getSyncedViewValue(story, 'alltime'); }}
   ];
 
   function htmlEscape(value){
-    return String(value == null ? '' : value)
-      .replace(/&/g,'&amp;')
-      .replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;')
-      .replace(/"/g,'&quot;')
-      .replace(/'/g,'&#39;');
+    return String(value == null ? '' : value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
-
   function getDeepValue(obj, path){
     if(!obj || !path) return undefined;
-    return String(path).split('.').reduce(function(current, key){
-      return current && current[key] !== undefined ? current[key] : undefined;
-    }, obj);
+    return String(path).split('.').reduce(function(current, key){ return current && current[key] !== undefined ? current[key] : undefined; }, obj);
   }
-
+  function toNumber(value){
+    if(Array.isArray(value) && value.length) return value.length;
+    if(value && typeof value === 'object' && !Array.isArray(value)){
+      var objectCount = Object.keys(value).length;
+      if(objectCount > 0) return objectCount;
+    }
+    var number = Number(String(value == null ? '' : value).replace(/,/g,'').trim());
+    return Number.isFinite(number) ? Math.max(0, Math.round(number)) : 0;
+  }
   function readNumber(story, keys){
     for(var i = 0; i < keys.length; i++){
-      var value = getDeepValue(story, keys[i]);
-      if(Array.isArray(value) && value.length) return value.length;
-      if(value && typeof value === 'object' && !Array.isArray(value)){
-        var objectCount = Object.keys(value).length;
-        if(objectCount > 0) return objectCount;
-      }
-      var number = Number(String(value == null ? '' : value).replace(/,/g,'').trim());
-      if(Number.isFinite(number) && number > 0) return Math.round(number);
+      var number = toNumber(getDeepValue(story, keys[i]));
+      if(number > 0) return number;
     }
     return 0;
   }
-
-  function storyKey(story){
-    if(!story) return 'unknown';
-    var direct = story.storyId || story.id || story.docId || story.firebaseDocId || story.slug || story.key;
-    if(direct) return String(direct);
-    return String([story.title || story.name || story.short || 'unknown', story.author || story.writer || '', story.createdAtMs || story.createdAt || story.addedAt || story.coverUrl || story.cover || story.imageUrl || ''].filter(Boolean).join('|') || 'unknown');
-  }
-
-  function getLocalUserRatingCount(story){
-    return 0;
-  }
-
-  function readRangeNumber(story, range, keyMap, totalKeys, fallbackTotalFn){
-    var rangeKeys = (keyMap && keyMap[range]) || [];
-    var rangeValue = readNumber(story, rangeKeys);
-    if(rangeValue > 0) return rangeValue;
-    if(typeof fallbackTotalFn === 'function'){
-      var fnValue = Number(fallbackTotalFn(story)) || 0;
-      if(fnValue > 0) return fnValue;
+  function normalizeDateValue(value){
+    if(!value) return 0;
+    if(typeof value === 'number') return Number.isFinite(value) ? value : 0;
+    if(value && typeof value.toMillis === 'function'){
+      var millis = Number(value.toMillis());
+      return Number.isFinite(millis) ? millis : 0;
     }
-    return readNumber(story, totalKeys || []);
+    if(value && typeof value.seconds === 'number') return value.seconds * 1000;
+    var parsed = Date.parse(String(value));
+    return Number.isFinite(parsed) ? parsed : 0;
   }
-
-  function getStoryViewTotalFallback(story){
-    try{ if(typeof getStoryViewTotal === 'function') return Number(getStoryViewTotal(story)) || 0; }catch(error){}
-    return readNumber(story, ['views','viewCount','totalViews','allViews','stats.views','stats.viewCount','stats.totalViews']);
+  function stableDate(story){
+    return Math.max(
+      normalizeDateValue(story && story.createdAt),
+      normalizeDateValue(story && story.postedAt),
+      normalizeDateValue(story && story.publishedAt),
+      normalizeDateValue(story && story.uploadedAt),
+      normalizeDateValue(story && story.addedAt),
+      normalizeDateValue(story && story.updatedAt),
+      normalizeDateValue(story && story.lastUpdatedAt),
+      normalizeDateValue(story && story.updatedAtMs),
+      normalizeDateValue(story && story.createdAtMs)
+    );
   }
-
-  function getStoryViewRangeTotal(story, range){
-    var map = {
-      week:['viewsWeek','weekViews','weeklyViews','viewWeek','views7d','views_7d','stats.viewsWeek','stats.weekViews','views.week','viewStats.week'],
-      month:['viewsMonth','monthViews','monthlyViews','viewMonth','views30d','views_30d','stats.viewsMonth','stats.monthViews','views.month','viewStats.month'],
-      year:['viewsYear','yearViews','yearlyViews','viewYear','views365d','views_365d','stats.viewsYear','stats.yearViews','views.year','viewStats.year']
-    };
-    if(range === 'week'){
-      try{ if(typeof getWeekViews === 'function') return Number(getWeekViews(story)) || 0; }catch(error){}
-      try{ if(typeof getStoryWeekViews === 'function') return Number(getStoryWeekViews(story)) || 0; }catch(error){}
-    }
-    if(range === 'month'){
-      try{ if(typeof getMonthViews === 'function') return Number(getMonthViews(story)) || 0; }catch(error){}
-      try{ if(typeof getStoryMonthViews === 'function') return Number(getStoryMonthViews(story)) || 0; }catch(error){}
-    }
-    if(range === 'year'){
-      try{ if(typeof getYearViews === 'function') return Number(getYearViews(story)) || 0; }catch(error){}
-      try{ if(typeof getStoryYearViews === 'function') return Number(getStoryYearViews(story)) || 0; }catch(error){}
-    }
-    return readRangeNumber(story, range, map, ['views','viewCount','totalViews','allViews','stats.views','stats.viewCount','stats.totalViews'], getStoryViewTotalFallback);
+  function storyId(story){
+    return String(story && (story.id || story.storyId || story.docId || story.slug || story.key || story.title) || '').trim();
   }
-
-  function getStoryRatingTotalFallback(story){
-    var base = readNumber(story, [
-      'ratingCount','rateCount','ratingsCount','ratingVotes','ratingVoteCount','totalRatings',
-      'reviews','reviewCount','starCount','scoreCount','voteCount','votes',
-      'stats.ratingCount','stats.rateCount','stats.ratingsCount','stats.ratingVotes','stats.reviewCount','stats.voteCount',
-      'rating.count','ratings.count','review.count','score.count','stars.count'
-    ]);
-    return Math.max(0, base);
+  function stableStoryKey(story){
+    return (storyId(story) || storyTitle(story) || '').toLowerCase();
   }
-
-  function getStoryRatingRangeTotal(story, range){
-    var map = {
-      week:['ratingWeek','ratingsWeek','rateWeek','weekRatings','weeklyRatings','ratingVotesWeek','reviewWeek','reviewsWeek','voteWeek','votesWeek','stats.ratingWeek','stats.ratingsWeek','ratings.week','rating.week'],
-      month:['ratingMonth','ratingsMonth','rateMonth','monthRatings','monthlyRatings','ratingVotesMonth','reviewMonth','reviewsMonth','voteMonth','votesMonth','stats.ratingMonth','stats.ratingsMonth','ratings.month','rating.month'],
-      year:['ratingYear','ratingsYear','rateYear','yearRatings','yearlyRatings','ratingVotesYear','reviewYear','reviewsYear','voteYear','votesYear','stats.ratingYear','stats.ratingsYear','ratings.year','rating.year']
-    };
-    return readRangeNumber(story, range, map, [
-      'ratingCount','rateCount','ratingsCount','ratingVotes','ratingVoteCount','totalRatings',
-      'reviews','reviewCount','starCount','scoreCount','voteCount','votes',
-      'stats.ratingCount','stats.rateCount','stats.ratingsCount','stats.ratingVotes','stats.reviewCount','stats.voteCount',
-      'rating.count','ratings.count','review.count','score.count','stars.count'
-    ], getStoryRatingTotalFallback);
+  function isStoryVisible(story){
+    if(!story) return false;
+    if(story.deleted || story.deletedByAdmin || story.adminDeleted || story.isDeleted) return false;
+    if(story.hidden || story.hiddenByAdmin || story.adminHidden || story.isHidden) return false;
+    return true;
   }
-
-  function getStoryBookmarkTotalFallback(story){
-    try{ if(typeof getStoryBookmarkAlltimeDisplayCount === 'function') return Number(getStoryBookmarkAlltimeDisplayCount(story)) || 0; }catch(error){}
-    try{ if(typeof getStorySaveDisplayCount === 'function') return Number(getStorySaveDisplayCount(story)) || 0; }catch(error){}
-    var base = readNumber(story, [
-      'bookmarkCount','bookmarks','savedCount','saveCount','markCount','marks','followCount','followers',
-      'stats.bookmarkCount','stats.bookmarks','stats.savedCount','stats.saveCount','stats.followCount'
-    ]);
-    return Math.max(0, base);
+  function visibleOnly(list){
+    return (Array.isArray(list) ? list : []).filter(isStoryVisible);
   }
-
-  function getStoryBookmarkRangeTotal(story, range){
-    var map = {
-      week:['bookmarkWeek','bookmarksWeek','savedWeek','saveWeek','marksWeek','followWeek','weekBookmarks','weeklyBookmarks','stats.bookmarkWeek','stats.bookmarksWeek','bookmarks.week','saved.week'],
-      month:['bookmarkMonth','bookmarksMonth','savedMonth','saveMonth','marksMonth','followMonth','monthBookmarks','monthlyBookmarks','stats.bookmarkMonth','stats.bookmarksMonth','bookmarks.month','saved.month'],
-      year:['bookmarkYear','bookmarksYear','savedYear','saveYear','marksYear','followYear','yearBookmarks','yearlyBookmarks','stats.bookmarkYear','stats.bookmarksYear','bookmarks.year','saved.year']
-    };
-    return readRangeNumber(story, range, map, [
-      'bookmarkCount','bookmarks','savedCount','saveCount','markCount','marks','followCount','followers',
-      'stats.bookmarkCount','stats.bookmarks','stats.savedCount','stats.saveCount','stats.followCount'
-    ], getStoryBookmarkTotalFallback);
-  }
-
-  function getStories(){
+  function getFirebaseLoadedStories(){
     try{
-      if(typeof getVisibleWebStories === 'function'){
-        var visible = getVisibleWebStories();
-        if(Array.isArray(visible) && visible.length) return visible.slice();
+      if(Array.isArray(window.__tdnStoriesReadyForCounterSync) && window.__tdnStoriesReadyForCounterSync.length){
+        return visibleOnly(window.__tdnStoriesReadyForCounterSync);
       }
-    }catch(error){}
-    try{
-      if(Array.isArray(window.stories) && window.stories.length) return window.stories.slice();
-    }catch(error){}
-    try{
-      if(Array.isArray(window.webStories) && window.webStories.length) return window.webStories.slice();
     }catch(error){}
     return [];
   }
-
-  function getIndex(story){
-    try{ if(typeof getStoryOriginalIndex === 'function') return Number(getStoryOriginalIndex(story)) || 0; }catch(error){}
-    return Number(story && (story.originalIndex || story.index || story.order)) || 0;
+  function getRuntimeStories(){
+    var list = [];
+    try{
+      if(typeof getVisibleWebStories === 'function'){
+        var visible = getVisibleWebStories();
+        if(Array.isArray(visible) && visible.length) list = visible.slice();
+      }
+    }catch(error){}
+    if(!list.length){ try{ if(Array.isArray(window.stories) && window.stories.length) list = window.stories.slice(); }catch(error){} }
+    if(!list.length){ try{ if(Array.isArray(window.MOC_STORY_ADMIN_DATA) && window.MOC_STORY_ADMIN_DATA.length) list = window.MOC_STORY_ADMIN_DATA.slice(); }catch(error){} }
+    if(!list.length){ try{ if(Array.isArray(window.webStories) && window.webStories.length) list = window.webStories.slice(); }catch(error){} }
+    return visibleOnly(list);
   }
-
+  function getRankingBaseStories(){
+    var firebaseStories = getFirebaseLoadedStories();
+    if(firebaseStories.length) return firebaseStories;
+    return getRuntimeStories();
+  }
+  function hasFirebaseCounterValue(story){
+    return !!(story && (
+      story.__tdnMainCounterSynced ||
+      story.__tdnFirebaseHiddenViewsTotal != null ||
+      story.__tdnFirebaseHiddenViewsWeek != null ||
+      story.__tdnFirebaseHiddenViewsMonth != null ||
+      story.__tdnFirebaseHiddenViewsToday != null
+    ));
+  }
+  function hasRankingSyncSnapshot(){
+    try{
+      if(window.__tdnRankingSyncReady || window.__tdnRankingSyncSnapshot) return true;
+      if(window.TDNRankingSync && typeof window.TDNRankingSync.getSnapshot === 'function') return !!window.TDNRankingSync.getSnapshot();
+    }catch(error){}
+    return false;
+  }
+  function areCountersSyncedForStories(list){
+    if(!Array.isArray(list) || !list.length) return false;
+    if(hasRankingSyncSnapshot()) return true;
+    if(window.__tdnMainCountersSynced) return true;
+    return list.every(hasFirebaseCounterValue);
+  }
+  function requestCounterSync(list){
+    var now = Date.now();
+    if(counterSyncPromise || now - lastCounterSyncRequestAt < 1500) return;
+    var storiesForSync = visibleOnly(list && list.length ? list : getRankingBaseStories());
+    if(!storiesForSync.length) return;
+    lastCounterSyncRequestAt = now;
+    try{
+      if(typeof window.tdnSyncMainFirebaseCounters === 'function'){
+        counterSyncPromise = Promise.resolve(window.tdnSyncMainFirebaseCounters(storiesForSync)).then(function(){
+          counterSyncPromise = null;
+          scheduleRenderAll();
+        }).catch(function(){
+          counterSyncPromise = null;
+          scheduleRenderAll();
+        });
+      }
+    }catch(error){ counterSyncPromise = null; }
+  }
+  function getRankingState(){
+    var stories = getRankingBaseStories();
+    if(!stories.length){
+      return {ready:false, empty:true, stories:stories, message:RANK_EMPTY_TEXT};
+    }
+    if(!areCountersSyncedForStories(stories)){
+      requestCounterSync(stories);
+      return {ready:false, loading:true, stories:stories, message:RANK_SYNC_LOADING_TEXT};
+    }
+    return {ready:true, stories:stories};
+  }
+  function syncedNumber(story, keys){
+    return readNumber(story, keys || []);
+  }
+  function getSyncedViewValue(story, range){
+    if(!story || !hasFirebaseCounterValue(story)) return 0;
+    if(range === 'week') return syncedNumber(story, ['__tdnFirebaseHiddenViewsWeek']);
+    if(range === 'month') return syncedNumber(story, ['__tdnFirebaseHiddenViewsMonth']);
+    return syncedNumber(story, ['__tdnFirebaseHiddenViewsTotal']);
+  }
   function getCoverUrl(story){
     try{ if(typeof getStoryCoverImageUrl === 'function') return getStoryCoverImageUrl(story) || ''; }catch(error){}
-    return story && (story.cover || story.coverUrl || story.image || story.poster || story.thumbnail || '') || '';
+    try{ if(typeof normalizeExternalImageUrl === 'function') return normalizeExternalImageUrl(story && (story.cover || story.coverUrl || story.image || story.poster || story.thumbnail || '') || '') || ''; }catch(error){}
+    return String(story && (story.cover || story.coverUrl || story.image || story.poster || story.thumbnail || '') || '').trim();
   }
-
   function getGenre(story){
     try{ if(typeof getStoryGenreText === 'function') return (getStoryGenreText(story) || '').trim(); }catch(error){}
-    var raw = story && (story.genre || story.category || story.categories || story.type);
+    var raw = story && (story.genre || story.genres || story.category || story.categories || story.theLoai || story.type);
     if(Array.isArray(raw)) return raw.join(', ');
     return String(raw || 'Đang cập nhật').trim();
   }
-
   function getAuthor(story){
-    return String(story && (story.author || story.writer || story.creator || 'Chưa rõ tác giả') || 'Chưa rõ tác giả');
+    try{ if(typeof storyAuthor === 'function') return String(storyAuthor(story) || '').trim() || 'Chưa rõ tác giả'; }catch(error){}
+    return String(story && (story.author || story.writer || story.creator || 'Chưa rõ tác giả') || 'Chưa rõ tác giả').trim();
   }
-
+  function storyTitle(story){ return String(story && (story.title || story.short || story.name || 'Truyện chưa có tên') || 'Truyện chưa có tên').trim(); }
+  function firstGenre(story){ return String((getGenre(story) || 'Đang cập nhật').split(',')[0] || 'Đang cập nhật').trim(); }
   function coverHtml(story){
     var url = getCoverUrl(story);
-    if(url){
-      return '<img src="' + htmlEscape(url) + '" alt="' + htmlEscape(story && (story.title || story.short || 'Ảnh bìa truyện')) + '" loading="lazy" decoding="async">';
-    }
+    if(url) return '<img src="' + htmlEscape(url) + '" alt="' + htmlEscape(storyTitle(story)) + '" loading="lazy" decoding="async" onerror="this.parentElement&&this.parentElement.classList.remove(\'has-image\');this.remove();">';
     return '<div class="tdn-rank-cover-fallback">' + htmlEscape(story && (story.short || story.title || 'Truyện')) + '</div>';
   }
-
   function getList(config){
-    var stories = getStories().map(function(story){
-      return {story:story, value:Math.max(0, Number(config.getValue(story)) || 0)};
-    }).sort(function(a,b){
-      return (b.value - a.value) || (getIndex(a.story) - getIndex(b.story));
-    });
-
-    var withValue = stories.filter(function(item){ return item.value > 0; });
-    return withValue.length ? withValue : stories;
-  }
-
-  function storyTitle(story){
-    return String(story && (story.title || story.short || story.name || 'Truyện chưa có tên') || 'Truyện chưa có tên');
-  }
-
-  function firstGenre(story){
-    return String((getGenre(story) || 'Đang cập nhật').split(',')[0] || 'Đang cập nhật').trim();
-  }
-  function countKey(panelIndex){
-    return String(panelIndex);
-  }
-
-  function getVisibleCount(panelIndex){
-    var key = countKey(panelIndex);
-    return Math.max(10, Number(visibleCounts[key]) || 10);
-  }
-
-  function setVisibleCount(panelIndex, value){
-    visibleCounts[countKey(panelIndex)] = Math.max(10, Number(value) || 10);
-  }
-
-  function renderPanel(panel, config, panelIndex){
-    panelIndex = Math.max(0, Number(panelIndex) || 0);
-    var list = getList(config);
-    if(!list.length){
-      panel.innerHTML = '<p class="tdn-rank-empty">Chưa có truyện nào để xếp hạng.</p>';
-      return;
+    var state = getRankingState();
+    if(!state.ready){
+      return {ready:false, message:state.message || RANK_SYNC_LOADING_TEXT, items:[]};
     }
-
+    var stories = state.stories.slice();
+    try{
+      if(window.TDNRankingSync && typeof window.TDNRankingSync.sortStories === 'function'){
+        stories = window.TDNRankingSync.sortStories(stories, config.range || 'week');
+      }
+    }catch(error){}
+    var mapped = stories.map(function(story){
+      return {story:story, value:Math.max(0, Math.round(Number(config.getValue(story)) || 0)), total:getSyncedViewValue(story, 'alltime')};
+    });
+    if(!hasRankingSyncSnapshot()){
+      mapped.sort(function(a,b){
+        var byValue = b.value - a.value;
+        if(byValue) return byValue;
+        var byTotal = b.total - a.total;
+        if(byTotal) return byTotal;
+        var byDate = stableDate(b.story) - stableDate(a.story);
+        if(byDate) return byDate;
+        var titleCompare = storyTitle(a.story).localeCompare(storyTitle(b.story), 'vi', {sensitivity:'base'});
+        if(titleCompare) return titleCompare;
+        return stableStoryKey(a.story).localeCompare(stableStoryKey(b.story));
+      });
+    }
+    var withValue = mapped.filter(function(item){ return item.value > 0; });
+    return {ready:true, message:'', items:withValue.length ? withValue : mapped};
+  }
+  function rowHtml(item, index){
+    var rank = index + 1;
+    var story = item.story;
+    var medalClass = rank <= 3 ? ' is-medal rank-' + rank : '';
+    var id = htmlEscape(storyId(story));
+    var title = htmlEscape(storyTitle(story));
+    if(rank === 1){
+      return ''
+        + '<button class="tdn-rank-item is-top' + medalClass + '" type="button" data-rank-open-story="' + id + '">'
+        +   '<span class="tdn-rank-rank"><span class="tdn-rank-rank-badge">1</span></span>'
+        +   '<span class="tdn-rank-item-title-wrap">'
+        +     '<span class="tdn-rank-item-title">' + title + '</span>'
+        +     '<span class="tdn-rank-item-meta">' + personIcon + '<span>' + htmlEscape(getAuthor(story)) + '</span></span>'
+        +     '<span class="tdn-rank-item-meta is-genre">' + tagIcon + '<span>' + htmlEscape(firstGenre(story)) + '</span></span>'
+        +   '</span>'
+        +   '<span class="tdn-rank-item-cover has-image">' + coverHtml(story) + '</span>'
+        + '</button>';
+    }
+    return ''
+      + '<button class="tdn-rank-item' + medalClass + '" type="button" data-rank-open-story="' + id + '">'
+      +   '<span class="tdn-rank-rank"><span class="tdn-rank-rank-badge">' + rank + '</span></span>'
+      +   '<span class="tdn-rank-item-title">' + title + '</span>'
+      + '</button>';
+  }
+  function emptyHtml(message){
+    return '<p class="tdn-rank-empty">' + htmlEscape(message || RANK_EMPTY_TEXT) + '</p>';
+  }
+  function countKey(panelIndex){ return String(panelIndex); }
+  function getVisibleCount(panelIndex){ return Math.max(PAGE_INITIAL_LIMIT, Number(visibleCounts[countKey(panelIndex)]) || PAGE_INITIAL_LIMIT); }
+  function setVisibleCount(panelIndex, value){ visibleCounts[countKey(panelIndex)] = Math.max(PAGE_INITIAL_LIMIT, Number(value) || PAGE_INITIAL_LIMIT); }
+  function renderPagePanel(panel, config, panelIndex){
+    if(!panel) return;
+    panelIndex = Math.max(0, Number(panelIndex) || 0);
+    var result = getList(config);
+    if(!result.ready){ panel.innerHTML = emptyHtml(result.message); return; }
+    var list = result.items;
+    if(!list.length){ panel.innerHTML = emptyHtml(RANK_EMPTY_TEXT); return; }
     var visibleCount = getVisibleCount(panelIndex);
     var visibleList = list.slice(0, visibleCount);
-    var rows = visibleList.map(function(item, index){
-      var rank = index + 1;
-      var medalClass = rank <= 3 ? ' is-medal rank-' + rank : '';
-      var storyId = htmlEscape(item.story && item.story.id || '');
-      var title = htmlEscape(storyTitle(item.story));
-
-      if(rank === 1){
-        return ''
-          + '<button class="tdn-rank-item is-top' + medalClass + '" type="button" data-rank-open-story="' + storyId + '">'
-          +   '<span class="tdn-rank-rank"><span class="tdn-rank-rank-badge">1</span></span>'
-          +   '<span class="tdn-rank-item-title-wrap">'
-          +     '<span class="tdn-rank-item-title">' + title + '</span>'
-          +     '<span class="tdn-rank-item-meta">' + personIcon + '<span>' + htmlEscape(getAuthor(item.story)) + '</span></span>'
-          +     '<span class="tdn-rank-item-meta is-genre">' + tagIcon + '<span>' + htmlEscape(firstGenre(item.story)) + '</span></span>'
-          +   '</span>'
-          +   '<span class="tdn-rank-item-cover">' + coverHtml(item.story) + '</span>'
-          + '</button>';
-      }
-
-      return ''
-        + '<button class="tdn-rank-item' + medalClass + '" type="button" data-rank-open-story="' + storyId + '">'
-        +   '<span class="tdn-rank-rank"><span class="tdn-rank-rank-badge">' + rank + '</span></span>'
-        +   '<span class="tdn-rank-item-title">' + title + '</span>'
-        + '</button>';
-    }).join('');
-
-    var moreHtml = '';
-    if(list.length > visibleList.length){
-      moreHtml = '<div class="tdn-rank-more-wrap"><button class="tdn-rank-more-btn" type="button" data-rank-load-more="' + panelIndex + '">Xem thêm</button></div>';
-    }
-
+    var rows = visibleList.map(rowHtml).join('');
+    var moreHtml = list.length > visibleList.length ? '<div class="tdn-rank-more-wrap"><button class="tdn-rank-more-btn" type="button" data-rank-load-more="' + panelIndex + '">Xem thêm</button></div>' : '';
     panel.innerHTML = '<div class="tdn-rank-board">' + rows + '</div>' + moreHtml;
   }
-
-  function renderAll(){
-    panels.forEach(function(panel, index){
-      renderPanel(panel, configs[index] || configs[0], index);
+  function renderPageAll(){
+    panels.forEach(function(panel, index){ renderPagePanel(panel, configs[index] || configs[0], index); });
+    requestAnimationFrame(function(){ movePanelsToActive(true, false); });
+  }
+  function renderHomePanel(panel, config){
+    if(!panel) return;
+    var result = getList(config);
+    if(!result.ready){ panel.innerHTML = emptyHtml(result.message); return; }
+    var list = result.items.slice(0, HOME_LIMIT);
+    if(!list.length){ panel.innerHTML = emptyHtml(RANK_EMPTY_TEXT); return; }
+    panel.innerHTML = '<div class="tdn-rank-board">' + list.map(rowHtml).join('') + '</div>';
+  }
+  function setHomeActive(index){
+    homeActiveIndex = Math.max(0, Math.min(index, homeTabs.length - 1));
+    homeTabs.forEach(function(tab, tabIndex){
+      var active = tabIndex === homeActiveIndex;
+      tab.classList.toggle('is-active', active);
+      tab.setAttribute('aria-selected', active ? 'true' : 'false');
     });
-    requestAnimationFrame(function(){
-      movePanelsToActive(true, false);
+    homePanels.forEach(function(panel, panelIndex){
+      var active = panelIndex === homeActiveIndex;
+      panel.classList.toggle('is-active', active);
+      panel.setAttribute('aria-hidden', active ? 'false' : 'true');
     });
   }
-
+  function renderHomeAll(){
+    if(!homeSection || !homePanels.length) return;
+    homePanels.forEach(function(panel, index){ renderHomePanel(panel, configs[index] || configs[0]); });
+    setHomeActive(homeActiveIndex);
+  }
   function updatePanelHeight(){
+    if(!panelsWrap) return;
     var panel = panels[activeIndex];
     if(!panel) return;
     var height = Math.max(1, panel.scrollHeight || panel.offsetHeight || 1);
     panelsWrap.style.height = height + 'px';
   }
-
   function positionPanels(animate, offsetPx){
+    if(!panelsWrap) return;
     var width = panelsWrap.clientWidth || window.innerWidth || 1;
     var offsetPercent = ((Number(offsetPx) || 0) / width) * 100;
     panels.forEach(function(panel, panelIndex){
@@ -37802,191 +37716,163 @@ margin-top:0 !important;
       panel.setAttribute('aria-hidden', panelIndex === activeIndex ? 'false' : 'true');
     });
   }
-
   function movePanelsToActive(animate, resetScroll){
     positionPanels(animate !== false, 0);
     updatePanelHeight();
-    if(resetScroll){
-      try{ window.scrollTo(0, 0); }catch(error){}
-    }
+    if(resetScroll){ try{ window.scrollTo(0,0); }catch(error){} }
   }
-
   function setActive(index, fromSwipe){
     activeIndex = Math.max(0, Math.min(index, tabs.length - 1));
     tabs.forEach(function(tab, tabIndex){
-      tab.classList.toggle('is-active', tabIndex === activeIndex);
+      var active = tabIndex === activeIndex;
+      tab.classList.toggle('is-active', active);
+      tab.setAttribute('aria-selected', active ? 'true' : 'false');
     });
     movePanelsToActive(true, !fromSwipe);
   }
-
   function beginPanelSwipe(event){
     if(!event.touches || event.touches.length !== 1) return;
     var touch = event.touches[0];
-    swipeStartX = touch.clientX;
-    swipeStartY = touch.clientY;
-    swipeStartTime = Date.now();
-    swipeTracking = true;
-    swipeIsHorizontal = false;
-    positionPanels(false, 0);
+    swipeStartX = touch.clientX; swipeStartY = touch.clientY; swipeStartTime = Date.now(); swipeTracking = true; swipeIsHorizontal = false;
+    positionPanels(false,0);
   }
-
   function movePanelSwipe(event){
     if(!swipeTracking || !event.touches || event.touches.length !== 1) return;
     var touch = event.touches[0];
     var dx = touch.clientX - swipeStartX;
     var dy = touch.clientY - swipeStartY;
-    var absX = Math.abs(dx);
-    var absY = Math.abs(dy);
-
-    if(!swipeIsHorizontal && absX > 12 && absX > absY * 1.25){
-      swipeIsHorizontal = true;
-    }
+    var absX = Math.abs(dx), absY = Math.abs(dy);
+    if(!swipeIsHorizontal && absX > 12 && absX > absY * 1.25) swipeIsHorizontal = true;
     if(swipeIsHorizontal){
       event.preventDefault();
       var atFirst = activeIndex <= 0 && dx > 0;
       var atLast = activeIndex >= tabs.length - 1 && dx < 0;
-      var dragX = (atFirst || atLast) ? dx * 0.28 : dx;
+      var dragX = (atFirst || atLast) ? dx * .28 : dx;
       positionPanels(false, dragX);
     }
   }
-
   function endPanelSwipe(event){
     if(!swipeTracking) return;
     swipeTracking = false;
-
     var touch = event.changedTouches && event.changedTouches[0];
-    if(!touch){
-      movePanelsToActive(true, false);
-      return;
-    }
-
+    if(!touch){ movePanelsToActive(true,false); return; }
     var dx = touch.clientX - swipeStartX;
     var dy = touch.clientY - swipeStartY;
-    var absX = Math.abs(dx);
-    var absY = Math.abs(dy);
-    var width = panelsWrap.clientWidth || window.innerWidth || 1;
+    var absX = Math.abs(dx), absY = Math.abs(dy);
+    var width = panelsWrap && (panelsWrap.clientWidth || window.innerWidth) || window.innerWidth || 1;
     var elapsed = Math.max(1, Date.now() - swipeStartTime);
     var velocity = absX / elapsed;
-    var threshold = Math.min(90, Math.max(46, width * 0.16));
-    var isSwipe = absX > absY * 1.25 && (absX >= threshold || (absX >= 34 && velocity >= 0.55));
-
-    // Chỉ chặn click sau khi người dùng thật sự kéo ngang.
-    // Trước đó đang chặn cả thao tác chạm thường, nên nút "Xem thêm" bị bấm nhưng không chạy.
-    if(swipeIsHorizontal || isSwipe || absX > 20){
-      suppressClickUntil = Date.now() + 180;
-    }
-    if(isSwipe && dx < 0 && activeIndex < tabs.length - 1){
-      setActive(activeIndex + 1, true);
-      return;
-    }
-    if(isSwipe && dx > 0 && activeIndex > 0){
-      setActive(activeIndex - 1, true);
-      return;
-    }
-    movePanelsToActive(true, false);
+    var threshold = Math.min(90, Math.max(46, width * .16));
+    var isSwipe = absX > absY * 1.25 && (absX >= threshold || (absX >= 34 && velocity >= .55));
+    if(swipeIsHorizontal || isSwipe || absX > 20) suppressClickUntil = Date.now() + 180;
+    if(isSwipe && dx < 0 && activeIndex < tabs.length - 1){ setActive(activeIndex + 1, true); return; }
+    if(isSwipe && dx > 0 && activeIndex > 0){ setActive(activeIndex - 1, true); return; }
+    movePanelsToActive(true,false);
   }
-
-  function cancelPanelSwipe(){
-    swipeTracking = false;
-    swipeIsHorizontal = false;
-    movePanelsToActive(true, false);
-  }
-
+  function cancelPanelSwipe(){ swipeTracking = false; swipeIsHorizontal = false; movePanelsToActive(true,false); }
   function hideNormalPages(){
-    ['homePage','morePage','savedPage','adminPage','detailPage','readerPage'].forEach(function(id){
-      var node = document.getElementById(id);
-      if(node) node.hidden = true;
-    });
+    ['homePage','morePage','savedPage','adminPage','detailPage','readerPage'].forEach(function(id){ var node = document.getElementById(id); if(node) node.hidden = true; });
     var listeningBar = document.getElementById('homeListeningBar');
     if(listeningBar) listeningBar.hidden = true;
-    if(readerShell){
-      readerShell.classList.remove('reading-mode','detail-mode','list-mode','saved-list-mode');
-      readerShell.classList.add('rank-list-mode');
-    }
+    if(readerShell){ readerShell.classList.remove('reading-mode','detail-mode','list-mode','saved-list-mode'); readerShell.classList.add('rank-list-mode'); }
   }
-
   function openPage(){
-    renderAll();
+    renderPageAll();
     hideNormalPages();
-    page.hidden = false;
-    page.setAttribute('aria-hidden','false');
+    if(page){ page.hidden = false; page.setAttribute('aria-hidden','false'); }
     document.body.classList.remove('tdn-menu-ranking-open');
-    requestAnimationFrame(function(){
-      movePanelsToActive(false, true);
-    });
+    requestAnimationFrame(function(){ movePanelsToActive(false,true); });
   }
-
   function closePage(){
-    page.hidden = true;
-    page.setAttribute('aria-hidden','true');
+    if(page){ page.hidden = true; page.setAttribute('aria-hidden','true'); }
     if(readerShell) readerShell.classList.remove('rank-list-mode');
     try{
       if(typeof showHome === 'function') showHome({push:true, scroll:true, restoreScroll:true});
-      else{
-        var home = document.getElementById('homePage');
-        if(home) home.hidden = false;
-      }
-    }catch(error){
-      var homePage = document.getElementById('homePage');
-      if(homePage) homePage.hidden = false;
-    }
+      else{ var home = document.getElementById('homePage'); if(home) home.hidden = false; }
+    }catch(error){ var homePage = document.getElementById('homePage'); if(homePage) homePage.hidden = false; }
   }
-
-  tabs.forEach(function(tab){
-    tab.addEventListener('click', function(){
-      setActive(Number(tab.getAttribute('data-rank-tab-index') || 0) || 0, false);
-    });
-  });
-
-  panelsWrap.addEventListener('touchstart', beginPanelSwipe, {passive:true});
-  panelsWrap.addEventListener('touchmove', movePanelSwipe, {passive:false});
-  panelsWrap.addEventListener('touchend', endPanelSwipe, {passive:true});
-  panelsWrap.addEventListener('touchcancel', cancelPanelSwipe, {passive:true});
-
-  page.addEventListener('click', function(event){
-    if(Date.now() < suppressClickUntil){
-      event.preventDefault();
-      event.stopPropagation();
-      return;
-    }
-    var loadMoreBtn = event.target && event.target.closest && event.target.closest('[data-rank-load-more]');
-    if(loadMoreBtn){
-      event.preventDefault();
-      event.stopPropagation();
-      var panelIndex = Number(loadMoreBtn.getAttribute('data-rank-load-more') || activeIndex) || 0;
-      setVisibleCount(panelIndex, getVisibleCount(panelIndex) + 5);
-      renderPanel(panels[panelIndex], configs[panelIndex] || configs[0], panelIndex);
-      requestAnimationFrame(function(){
-        movePanelsToActive(true, false);
-      });
-      return;
-    }
-    var openBtn = event.target && event.target.closest && event.target.closest('[data-rank-open-story]');
+  function openStoryFromButton(openBtn){
     if(!openBtn) return;
     var id = openBtn.getAttribute('data-rank-open-story');
     if(!id) return;
-    page.hidden = true;
-    page.setAttribute('aria-hidden','true');
+    if(page){ page.hidden = true; page.setAttribute('aria-hidden','true'); }
     if(readerShell) readerShell.classList.remove('rank-list-mode');
-    try{ if(typeof openStory === 'function') openStory(id); }catch(error){}
+    try{ if(typeof openStory === 'function'){ openStory(id); return; } }catch(error){}
+    try{ if(typeof window.openMocStory === 'function'){ window.openMocStory(id); return; } }catch(error){}
+  }
+  function scheduleRenderAll(){
+    if(renderTimer) clearTimeout(renderTimer);
+    renderTimer = setTimeout(function(){ renderTimer = 0; renderHomeAll(); if(page && !page.hidden) renderPageAll(); }, 60);
+  }
+  function wrapRefreshHomeSections(){
+    if(refreshWrapped || typeof window.refreshHomeSections !== 'function') return;
+    var original = window.refreshHomeSections;
+    if(original && original.__tdnRankWrapped) return;
+    var wrapped = function(){
+      var result = original.apply(this, arguments);
+      scheduleRenderAll();
+      return result;
+    };
+    wrapped.__tdnRankWrapped = true;
+    window.refreshHomeSections = wrapped;
+    refreshWrapped = true;
+  }
+
+  tabs.forEach(function(tab){ tab.addEventListener('click', function(){ setActive(Number(tab.getAttribute('data-rank-tab-index') || 0) || 0, false); setHomeActive(activeIndex); }); });
+  homeTabs.forEach(function(tab){ tab.addEventListener('click', function(){ setHomeActive(Number(tab.getAttribute('data-home-rank-tab-index') || 0) || 0); setActive(homeActiveIndex, true); }); });
+  if(panelsWrap){
+    panelsWrap.addEventListener('touchstart', beginPanelSwipe, {passive:true});
+    panelsWrap.addEventListener('touchmove', movePanelSwipe, {passive:false});
+    panelsWrap.addEventListener('touchend', endPanelSwipe, {passive:true});
+    panelsWrap.addEventListener('touchcancel', cancelPanelSwipe, {passive:true});
+  }
+  if(page){
+    page.addEventListener('click', function(event){
+      if(Date.now() < suppressClickUntil){ event.preventDefault(); event.stopPropagation(); return; }
+      var loadMoreBtn = event.target && event.target.closest && event.target.closest('[data-rank-load-more]');
+      if(loadMoreBtn){
+        event.preventDefault(); event.stopPropagation();
+        var panelIndex = Number(loadMoreBtn.getAttribute('data-rank-load-more') || activeIndex) || 0;
+        setVisibleCount(panelIndex, getVisibleCount(panelIndex) + PAGE_LOAD_STEP);
+        renderPagePanel(panels[panelIndex], configs[panelIndex] || configs[0], panelIndex);
+        requestAnimationFrame(function(){ movePanelsToActive(true,false); });
+        return;
+      }
+      var openBtn = event.target && event.target.closest && event.target.closest('[data-rank-open-story]');
+      openStoryFromButton(openBtn);
+    });
+  }
+  if(homeSection){
+    homeSection.addEventListener('click', function(event){
+      var openBtn = event.target && event.target.closest && event.target.closest('[data-rank-open-story]');
+      openStoryFromButton(openBtn);
+    });
+  }
+  document.addEventListener('keydown', function(event){ if(event.key === 'Escape' && page && !page.hidden) closePage(); });
+  window.addEventListener('resize', function(){ if(page && !page.hidden) movePanelsToActive(false,false); }, {passive:true});
+  document.addEventListener('tdn:firebase-story-flow-refresh', scheduleRenderAll);
+  document.addEventListener('tdn:ranking-sync-updated', scheduleRenderAll);
+  document.addEventListener('tdn:main-counters-fast-synced', scheduleRenderAll);
+  document.addEventListener('tdn:stories-loaded-for-counter-sync', function(event){
+    var list = event && event.detail && Array.isArray(event.detail.stories) ? event.detail.stories : null;
+    requestCounterSync(list);
+    scheduleRenderAll();
   });
+  document.addEventListener('mocTruyen:storySaved', scheduleRenderAll);
+  window.addEventListener('pageshow', scheduleRenderAll);
+  window.addEventListener('load', function(){ scheduleRenderAll(); setTimeout(scheduleRenderAll, 260); });
 
-  closeBtn && closeBtn.addEventListener('click', closePage);
-  logoHomeBtn && logoHomeBtn.addEventListener('click', closePage);
-
-  document.addEventListener('keydown', function(event){
-    if(event.key === 'Escape' && !page.hidden) closePage();
-  });
-
-  window.addEventListener('resize', function(){
-    if(!page.hidden) movePanelsToActive(false, false);
-  }, {passive:true});
-
-  renderAll();
+  setActive(0,true);
+  setHomeActive(0);
+  renderHomeAll();
+  renderPageAll();
+  wrapRefreshHomeSections();
+  setTimeout(function(){ wrapRefreshHomeSections(); requestCounterSync(); scheduleRenderAll(); }, 300);
+  setTimeout(scheduleRenderAll, 1200);
   window.openTdnMenuRankingPage = openPage;
   window.closeTdnMenuRankingPage = closePage;
-})();
-</script>
+  window.renderTdnRankingBoards = function(){ renderHomeAll(); renderPageAll(); };
+})();</script>
 
 
 <script id="tdn-support-tab-smooth-open-patch">(function(){
@@ -40440,12 +40326,14 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
     }catch(error){ return []; }
   }
   async function readStoryChapters(db, storyId, raw){
+    var inline = Array.isArray(raw && raw.chapters) ? raw.chapters : [];
+    if(inline.length) return inline;
     try{
       var snap = await db.collection(STORY_COLLECTION).doc(storyId).collection('chapters').orderBy('order', 'asc').get();
       var docs = snap && snap.docs ? snap.docs : [];
       if(docs.length) return docs.map(function(doc, index){ return Object.assign({}, doc.data(), {chapterId:doc.id, id:doc.id}); });
     }catch(error){}
-    return Array.isArray(raw && raw.chapters) ? raw.chapters : [];
+    return inline;
   }
   async function loadStories(force){
     if(!force && !runtimeLoaded){
@@ -41121,7 +41009,10 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
     bind();
     var cache = readCache();
     if(cache.length) setRuntimeStories(cache.map(function(story){ return normalizeStory(story, story.id || story.storyId, story.chapters); }));
-    setTimeout(function(){ loadStories(true); }, 250);
+    setTimeout(function(){
+      if(window.__TDN_FAST_STORY_SYNC_OWNS_BOOT) return;
+      loadStories(true);
+    }, 250);
   }
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, {once:true});
   else init();
@@ -42331,11 +42222,19 @@ html body:not(.reader-dark) #homePage .tdn-footer-brand{
 <script id="tdn-firestore-realtime-sync-final">
 (function(){
   'use strict';
+
+  window.__TDN_FAST_STORY_SYNC_OWNS_BOOT = true;
+
   var STORY_COLLECTION = 'stories';
   var CACHE_KEY = 'tdn_story_flow_cache_v23';
-  var unsubscribe = null;
+  var PERSIST_CACHE_KEY = 'tdn_persisted_firestore_stories_v1';
+  var unsubscribers = [];
   var started = false;
   var retryTimer = 0;
+  var shardStories = {};
+  var shardLoaded = {};
+  var knownTargetIds = [];
+  var loadingAllOnce = null;
 
   function trim(value){ return String(value == null ? '' : value).trim(); }
   function lower(value){ return trim(value).toLowerCase(); }
@@ -42383,15 +42282,29 @@ html body:not(.reader-dark) #homePage .tdn-footer-brand{
   function makeChapterId(number){
     return 'c_' + String(Math.max(1, Number(number) || 1)).padStart(4, '0');
   }
-  function getDb(){
+  function getActiveStoryShardId(){
+    try{ if(window.TDNFirebaseFlows && typeof window.TDNFirebaseFlows.getActiveStoryShardId === 'function') return trim(window.TDNFirebaseFlows.getActiveStoryShardId()); }catch(error){}
+    return 'story_01';
+  }
+  function getDbById(id){
     try{
-      if(window.TDNFirebaseFlows && typeof window.TDNFirebaseFlows.getStoryDb === 'function'){
-        return window.TDNFirebaseFlows.getStoryDb();
-      }
+      if(window.TDNFirebaseFlows && typeof window.TDNFirebaseFlows.getStoryDb === 'function') return window.TDNFirebaseFlows.getStoryDb(trim(id) || undefined);
       if(window.TDN_STORY_FIRESTORE_DB) return window.TDN_STORY_FIRESTORE_DB;
       if(window.TDN_FIRESTORE_DB) return window.TDN_FIRESTORE_DB;
     }catch(error){}
     return null;
+  }
+  function getReadTargets(){
+    try{
+      if(window.TDNFirebaseFlows && typeof window.TDNFirebaseFlows.getStoryReadDbs === 'function'){
+        var targets = (window.TDNFirebaseFlows.getStoryReadDbs() || []).filter(function(item){ return item && item.db; });
+        if(targets.length) return targets.map(function(item){
+          return {id:trim(item.id) || getActiveStoryShardId(), name:trim(item.name) || trim(item.id) || 'Luồng truyện', db:item.db};
+        });
+      }
+    }catch(error){}
+    var db = getDbById(getActiveStoryShardId());
+    return db ? [{id:getActiveStoryShardId(), name:getActiveStoryShardId(), db:db}] : [];
   }
   function getRuntimeArray(){
     try{ if(typeof stories !== 'undefined' && Array.isArray(stories)) return stories; }catch(error){}
@@ -42422,9 +42335,10 @@ html body:not(.reader-dark) #homePage .tdn-footer-brand{
       deleted:!!raw.deleted
     });
   }
-  function normalizeStory(raw, id, chapters){
+  function normalizeStory(raw, docId, chapters, shardId){
     raw = raw && typeof raw === 'object' ? raw : {};
-    var storyId = trim(raw.storyId || raw.id || id) || slugify(raw.title || 'truyen');
+    shardId = trim(shardId || raw.storyShardId || raw.sourceFirebase || raw.firebaseShardId || raw.__tdnShardId || getActiveStoryShardId());
+    var storyId = trim(raw.storyId || raw.id || docId) || slugify(raw.title || 'truyen');
     var title = trim(raw.title || raw.short) || 'Truyện chưa có tên';
     var cats = unique([].concat(Array.isArray(raw.categories) ? raw.categories : splitCategories(raw.category || raw.genre), Array.isArray(raw.labels) ? raw.labels : []));
     var list = (Array.isArray(chapters) && chapters.length ? chapters : (Array.isArray(raw.chapters) ? raw.chapters : []))
@@ -42438,6 +42352,7 @@ html body:not(.reader-dark) #homePage .tdn-footer-brand{
     return Object.assign({}, raw, {
       storyId:storyId,
       id:storyId,
+      docId:docId || storyId,
       slug:trim(raw.slug) || slugify(title),
       title:title,
       short:title,
@@ -42466,6 +42381,10 @@ html body:not(.reader-dark) #homePage .tdn-footer-brand{
       latestChapterId:trim(raw.latestChapterId) || (latest && latest.chapterId) || '',
       latestChapterTitle:trim(raw.latestChapterTitle) || (latest && latest.title) || '',
       latestChapterNumber:Number(raw.latestChapterNumber) || (latest && latest.number) || 0,
+      storyShardId:shardId,
+      sourceFirebase:shardId,
+      firebaseShardId:shardId,
+      __tdnShardId:shardId,
       createdAt:raw.createdAt || iso(raw.createdAtMs) || '',
       createdAtMs:Number(raw.createdAtMs) || toMs(raw.createdAt) || updatedMs,
       addedAt:raw.addedAt || iso(raw.createdAt || raw.createdAtMs) || '',
@@ -42484,25 +42403,66 @@ html body:not(.reader-dark) #homePage .tdn-footer-brand{
       text:raw.text || '#31534f'
     });
   }
+  function readCachePack(key){
+    try{
+      var raw = JSON.parse(localStorage.getItem(key) || '{}');
+      var list = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.stories) ? raw.stories : []);
+      return list.filter(Boolean);
+    }catch(error){ return []; }
+  }
+  function readFallbackCache(){
+    var list = readCachePack(CACHE_KEY);
+    if(!list.length) list = readCachePack(PERSIST_CACHE_KEY);
+    try{
+      if(!list.length && window.tdnStoryInstantCache && typeof window.tdnStoryInstantCache.read === 'function') list = window.tdnStoryInstantCache.read() || [];
+    }catch(error){}
+    return Array.isArray(list) ? list : [];
+  }
   function clearLocalOnlyCaches(){
     try{
       localStorage.removeItem('moc_truyen_admin_local_stories_v1');
       Object.keys(localStorage).forEach(function(key){
-        if(/^moc_truyen_admin_local_stories_/i.test(key)) localStorage.removeItem(key);
+        if(/^moc_truyen_admin_local_stories_/i.test(key || '')) localStorage.removeItem(key);
       });
     }catch(error){}
   }
-  async function readChapters(db, storyId, raw){
-    try{
-      var snap = await db.collection(STORY_COLLECTION).doc(storyId).collection('chapters').orderBy('order', 'asc').get();
-      var docs = snap && snap.docs ? snap.docs : [];
-      if(docs.length){
-        return docs.map(function(doc, index){ return Object.assign({}, doc.data(), {chapterId:doc.id, id:doc.id}); });
-      }
-    }catch(error){}
-    return Array.isArray(raw && raw.chapters) ? raw.chapters : [];
+  async function readChapters(db, docId, raw){
+    var inline = Array.isArray(raw && raw.chapters) ? raw.chapters : [];
+    if(inline.length) return inline;
+    var tried = {};
+    var ids = [docId, raw && raw.storyId, raw && raw.id].map(trim).filter(Boolean);
+    for(var i=0;i<ids.length;i+=1){
+      var id = ids[i];
+      if(tried[id]) continue;
+      tried[id] = true;
+      try{
+        var snap = await db.collection(STORY_COLLECTION).doc(id).collection('chapters').orderBy('order', 'asc').get();
+        var docs = snap && snap.docs ? snap.docs : [];
+        if(docs.length){
+          return docs.map(function(doc, index){ return Object.assign({}, doc.data(), {chapterId:doc.id, id:doc.id}); });
+        }
+      }catch(error){}
+    }
+    return inline;
   }
-  function applyStories(list){
+  async function readDocsFromTarget(target, docs){
+    var loaded = [];
+    var shardId = trim(target && target.id) || getActiveStoryShardId();
+    docs = Array.isArray(docs) ? docs : [];
+    for(var i=0;i<docs.length;i+=1){
+      var doc = docs[i];
+      var raw = doc && typeof doc.data === 'function' ? (doc.data() || {}) : {};
+      if(raw.deleted === true || raw.deletedByAdmin === true || raw.adminDeleted === true) continue;
+      var docId = trim(doc && doc.id) || trim(raw.storyId || raw.id);
+      raw.storyShardId = trim(raw.storyShardId || raw.sourceFirebase || raw.firebaseShardId || raw.__tdnShardId || shardId) || shardId;
+      raw.sourceFirebase = raw.storyShardId;
+      raw.firebaseShardId = raw.storyShardId;
+      var chapters = await readChapters(target.db, docId, raw);
+      loaded.push(normalizeStory(raw, docId, chapters, shardId));
+    }
+    return loaded;
+  }
+  function setRuntimeStories(list, source){
     try{ if(window.tdnStoryInstantCache && typeof window.tdnStoryInstantCache.setLoading === 'function') window.tdnStoryInstantCache.setLoading(false); }catch(error){}
     var clean = (Array.isArray(list) ? list : [])
       .filter(function(story){ return story && !story.deleted && !story.deletedByAdmin && !story.adminDeleted; })
@@ -42510,25 +42470,19 @@ html body:not(.reader-dark) #homePage .tdn-footer-brand{
     var arr = getRuntimeArray();
 
     if(!clean.length){
-      var cached = [];
-      try{
-        if(window.tdnStoryInstantCache && typeof window.tdnStoryInstantCache.read === 'function') cached = window.tdnStoryInstantCache.read() || [];
-      }catch(error){ cached = []; }
+      var cached = readFallbackCache();
       if((arr && arr.length) || cached.length){
         try{
           if((!arr || !arr.length) && cached.length){
             arr = getRuntimeArray();
             arr.splice(0, arr.length);
-            Array.prototype.push.apply(arr, cached.map(function(story){ return normalizeStory(story, story.id || story.storyId, story.chapters); }));
+            Array.prototype.push.apply(arr, cached.map(function(story){ return normalizeStory(story, story.id || story.storyId || story.docId, story.chapters, story.storyShardId || story.sourceFirebase || story.firebaseShardId); }));
             window.stories = arr;
             window.MOC_STORY_ADMIN_DATA = arr;
           }
           window.__TDN_FIRESTORE_EMPTY_KEEP_CACHE = true;
         }catch(error){}
-        try{ if(typeof window.refreshHomeSections === 'function') window.refreshHomeSections(); }catch(error){}
-        try{ if(typeof window.initHeroSlider === 'function') window.initHeroSlider(); }catch(error){}
-        try{ if(window.MocTruyenAdmin && typeof window.MocTruyenAdmin.refresh === 'function') window.MocTruyenAdmin.refresh(); }catch(error){}
-        try{ document.dispatchEvent(new CustomEvent('tdn:firebase-story-flow-refresh', {detail:{source:'realtime_keep_cache', count:(arr && arr.length) || cached.length || 0}})); }catch(error){}
+        refreshPublicUi('keep_cache');
         return;
       }
     }
@@ -42539,77 +42493,149 @@ html body:not(.reader-dark) #homePage .tdn-footer-brand{
     window.MOC_STORY_ADMIN_DATA = arr;
     if(clean.length){
       try{ localStorage.setItem(CACHE_KEY, JSON.stringify({savedAt:Date.now(), stories:clean})); }catch(error){}
-      try{ localStorage.setItem('tdn_persisted_firestore_stories_v1', JSON.stringify({version:2, savedAt:Date.now(), count:clean.length, stories:clean})); }catch(error){}
+      try{ localStorage.setItem(PERSIST_CACHE_KEY, JSON.stringify({version:2, savedAt:Date.now(), count:clean.length, stories:clean})); }catch(error){}
       try{ if(window.tdnStoryInstantCache && typeof window.tdnStoryInstantCache.save === 'function') window.tdnStoryInstantCache.save(clean); }catch(error){}
     }
+    window.__TDN_FIRESTORE_STORY_SYNC_OK = clean.length > 0;
+    window.__TDN_FIRESTORE_STORY_SYNC_SOURCE = source || 'all_story_shards';
+    refreshPublicUi(source || 'all_story_shards');
+    try{ document.dispatchEvent(new CustomEvent('tdn:stories-loaded-for-counter-sync', {detail:{stories:clean}})); }catch(error){}
+    try{ if(window.tdnSyncMainFirebaseCounters && clean.length) window.tdnSyncMainFirebaseCounters(clean); }catch(error){}
+  }
+  function refreshPublicUi(source){
     try{ if(typeof window.refreshHomeSections === 'function') window.refreshHomeSections(); }catch(error){}
     try{ if(typeof window.initHeroSlider === 'function') window.initHeroSlider(); }catch(error){}
     try{ if(window.MocTruyenAdmin && typeof window.MocTruyenAdmin.refresh === 'function') window.MocTruyenAdmin.refresh(); }catch(error){}
-    try{ document.dispatchEvent(new CustomEvent('tdn:firebase-story-flow-refresh', {detail:{source:'realtime', count:clean.length}})); }catch(error){}
+    try{ document.dispatchEvent(new CustomEvent('tdn:firebase-story-flow-refresh', {detail:{source:source || 'all_story_shards', count:getRuntimeArray().length}})); }catch(error){}
   }
-  async function loadOnce(db){
-    var snap = await db.collection(STORY_COLLECTION).get();
-    var docs = snap && snap.docs ? snap.docs : [];
-    var loaded = [];
-    for(var i=0;i<docs.length;i+=1){
-      var raw = docs[i].data() || {};
-      if(raw.deleted === true || raw.deletedByAdmin === true || raw.adminDeleted === true) continue;
-      var storyId = trim(raw.storyId || raw.id || docs[i].id);
-      var chapters = await readChapters(db, storyId, raw);
-      loaded.push(normalizeStory(raw, docs[i].id, chapters));
+  function allKnownTargetsLoaded(){
+    if(!knownTargetIds.length) return false;
+    for(var i=0;i<knownTargetIds.length;i+=1){ if(!shardLoaded[knownTargetIds[i]]) return false; }
+    return true;
+  }
+  function applyMerged(source){
+    var all = [];
+    Object.keys(shardStories).forEach(function(id){
+      if(Array.isArray(shardStories[id])) Array.prototype.push.apply(all, shardStories[id]);
+    });
+    if(!all.length && !allKnownTargetsLoaded()){
+      var cached = readFallbackCache();
+      if(cached.length && !getRuntimeArray().length){
+        setRuntimeStories(cached.map(function(story){ return normalizeStory(story, story.id || story.storyId || story.docId, story.chapters, story.storyShardId || story.sourceFirebase || story.firebaseShardId); }), 'cache_wait_all_story_shards');
+      }
+      return;
     }
-    applyStories(loaded);
-    return loaded;
+    var byId = {};
+    all.forEach(function(story){
+      var id = trim(story && (story.id || story.storyId || story.docId));
+      if(!id) return;
+      var old = byId[id];
+      if(!old || (Number(story.updatedAtMs) || 0) >= (Number(old.updatedAtMs) || 0)) byId[id] = story;
+    });
+    var merged = Object.keys(byId).map(function(id){ return byId[id]; });
+    setRuntimeStories(merged, source || 'merged_all_story_shards');
+  }
+  async function loadTargetOnce(target){
+    if(!target || !target.db) return [];
+    var shardId = trim(target.id) || getActiveStoryShardId();
+    try{
+      var snap;
+      try{ snap = await target.db.collection(STORY_COLLECTION).where('deleted','==',false).get(); }
+      catch(error){ snap = await target.db.collection(STORY_COLLECTION).get(); }
+      var docs = snap && snap.docs ? snap.docs : [];
+      var list = await readDocsFromTarget(target, docs);
+      shardStories[shardId] = list;
+      shardLoaded[shardId] = true;
+      return list;
+    }catch(error){
+      console.warn('Không đọc được Firebase truyện ' + shardId + ':', error);
+      shardStories[shardId] = shardStories[shardId] || [];
+      shardLoaded[shardId] = true;
+      return [];
+    }
+  }
+  function loadAllOnce(targets){
+    targets = Array.isArray(targets) ? targets : getReadTargets();
+    if(loadingAllOnce) return loadingAllOnce;
+    var jobs = targets.map(function(target){
+      var shardId = trim(target && target.id) || getActiveStoryShardId();
+      return loadTargetOnce(target).then(function(){
+        applyMerged('incremental_load_' + shardId);
+      });
+    });
+    loadingAllOnce = Promise.all(jobs).then(function(){
+      applyMerged('load_once_all_story_shards_done');
+      return getRuntimeArray();
+    }).catch(function(error){
+      console.error('Không tải được toàn bộ luồng truyện:', error);
+      applyMerged('load_once_all_story_shards_error');
+      return getRuntimeArray();
+    }).finally(function(){ loadingAllOnce = null; });
+    return loadingAllOnce;
+  }
+  function stopRealtime(){
+    unsubscribers.forEach(function(fn){ try{ if(typeof fn === 'function') fn(); }catch(error){} });
+    unsubscribers = [];
+  }
+  function startRealtimeForTarget(target){
+    if(!target || !target.db) return;
+    var shardId = trim(target.id) || getActiveStoryShardId();
+    try{
+      var unsubscribe = target.db.collection(STORY_COLLECTION).onSnapshot(function(snap){
+        (async function(){
+          var docs = snap && snap.docs ? snap.docs : [];
+          shardStories[shardId] = await readDocsFromTarget(target, docs);
+          shardLoaded[shardId] = true;
+          applyMerged('realtime_all_story_shards');
+        })().catch(function(error){
+          console.error('Lỗi đồng bộ realtime truyện ' + shardId + ':', error);
+          loadTargetOnce(target).then(function(){ applyMerged('realtime_fallback_' + shardId); });
+        });
+      }, function(error){
+        console.error('Firestore realtime lỗi ở ' + shardId + ', chuyển sang tải một lần:', error);
+        loadTargetOnce(target).then(function(){ applyMerged('realtime_error_fallback_' + shardId); });
+      });
+      unsubscribers.push(unsubscribe);
+    }catch(error){
+      console.error('Không bật được realtime truyện ' + shardId + ':', error);
+      loadTargetOnce(target).then(function(){ applyMerged('realtime_start_fallback_' + shardId); });
+    }
   }
   function start(){
     if(started) return;
-    var db = getDb();
-    if(!db){
+    var targets = getReadTargets();
+    if(!targets.length){
       if(!retryTimer) retryTimer = setTimeout(function(){ retryTimer = 0; start(); }, 800);
       return;
     }
     clearLocalOnlyCaches();
     started = true;
-    try{ if(typeof unsubscribe === 'function') unsubscribe(); }catch(error){}
-    try{
-      unsubscribe = db.collection(STORY_COLLECTION).onSnapshot(async function(snap){
-        try{
-          var docs = snap && snap.docs ? snap.docs : [];
-          var loaded = [];
-          for(var i=0;i<docs.length;i+=1){
-            var raw = docs[i].data() || {};
-            if(raw.deleted === true || raw.deletedByAdmin === true || raw.adminDeleted === true) continue;
-            var storyId = trim(raw.storyId || raw.id || docs[i].id);
-            var chapters = await readChapters(db, storyId, raw);
-            loaded.push(normalizeStory(raw, docs[i].id, chapters));
-          }
-          applyStories(loaded);
-          window.__TDN_FIRESTORE_STORY_SYNC_OK = true;
-        }catch(error){
-          console.error('Lỗi đồng bộ realtime truyện:', error);
-          await loadOnce(db).catch(function(){});
-        }
-      }, function(error){
-        console.error('Firestore realtime lỗi, chuyển sang tải một lần:', error);
-        started = false;
-        try{ if(typeof unsubscribe === 'function') unsubscribe(); }catch(e){}
-        unsubscribe = null;
-        loadOnce(db).catch(function(){});
-      });
-      window.__TDN_FIRESTORE_STORY_UNSUBSCRIBE = unsubscribe;
-      loadOnce(db).catch(function(){});
-    }catch(error){
-      console.error('Không bật được đồng bộ realtime truyện:', error);
-      started = false;
-      loadOnce(db).catch(function(){});
-    }
+    window.__TDN_FIRESTORE_STORY_SYNCING_ALL = true;
+    knownTargetIds = targets.map(function(item){ return trim(item.id) || getActiveStoryShardId(); });
+    stopRealtime();
+    loadAllOnce(targets).then(function(){
+      window.__TDN_FIRESTORE_STORY_SYNCING_ALL = false;
+      if(!unsubscribers.length) targets.forEach(startRealtimeForTarget);
+    });
+    window.__TDN_FIRESTORE_STORY_UNSUBSCRIBE = function(){ stopRealtime(); started = false; };
   }
+  function restart(){
+    stopRealtime();
+    started = false;
+    shardStories = {};
+    shardLoaded = {};
+    knownTargetIds = [];
+    start();
+  }
+
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, {once:true});
   else start();
   window.addEventListener('pageshow', start);
-  document.addEventListener('visibilitychange', function(){
-    if(!document.hidden) loadOnce(getDb()).catch(function(){});
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden) loadAllOnce(getReadTargets()).catch(function(){}); });
+  document.addEventListener('tdn:firebase-active-shard-change', function(event){
+    if(event && event.detail && event.detail.type === 'story') restart();
   });
+  window.tdnReloadAllStoryFirebaseShards = function(){ restart(); return loadAllOnce(getReadTargets()); };
 })();
 </script>
 
@@ -43325,7 +43351,7 @@ body.reader-dark #adminPage #adminStoryTxtList .admin-add-file-badge{
       home.hidden = false;
       home.removeAttribute('aria-hidden');
     }
-    ['tdnLibraryPage','morePage','savedPage','rankPage','adminPage','detailPage','readerPage','tdnMenuRankingPage'].forEach(function(id){
+    ['tdnLibraryPage','morePage','savedPage','adminPage','detailPage','readerPage','tdnMenuRankingPage'].forEach(function(id){
       var el = byId(id);
       if(el && id !== 'homePage') el.hidden = true;
     });
@@ -44527,13 +44553,13 @@ body.reader-dark #homePage .home-reading-now-remove-btn{
 
   function refreshUi(){
     try{ if(typeof window.refreshHomeSections === 'function') window.refreshHomeSections(); }catch(error){}
-    try{ if(typeof window.renderRankPage === 'function') window.renderRankPage(); }catch(error){}
     try{ if(typeof window.renderMoreStories === 'function') window.renderMoreStories(); }catch(error){}
   }
 
   function markSyncState(syncing, synced){
     try{
       window.__tdnMainCountersSyncing = !!syncing;
+      if(syncing) window.__tdnMainCountersSynced = false;
       if(synced) window.__tdnMainCountersSynced = true;
       if(synced) window.__tdnMainCountersSyncedAt = Date.now();
     }catch(error){}
