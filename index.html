@@ -9090,10 +9090,13 @@ margin-right:0 !important;
     (function initTdnDualFirebaseFlows(){
       'use strict';
 
+      // Luồng chính cố định của toàn web.
+      // Chỉ dùng 1 Firebase chính để lượt xem / bảng xếp hạng / truyện hot luôn đồng bộ,
+      // không còn chọn luồng chính riêng trong Admin nữa.
       var MAIN_FIREBASES = [
         {
           id: 'main_01',
-          name: 'Luồng chính 1',
+          name: 'Luồng chính',
           enabled: true,
           config: {
             apiKey: "AIzaSyBMJK0dbtZ_Ko_9b3nrxkaev3Tle0XAK1o",
@@ -9103,84 +9106,6 @@ margin-right:0 !important;
             storageBucket: "online1-557e7.firebasestorage.app",
             messagingSenderId: "359900501760",
             appId: "1:359900501760:web:6c324577aab3a38d6a05e5"
-          }
-        },
-        {
-          id: 'main_02',
-          name: 'Luồng chính 2',
-          enabled: true,
-          config: {
-            apiKey: "AIzaSyBwkGgWPAnilEIDJF5hv5cMzaymSXKVHTo",
-            authDomain: "online2-22f95.firebaseapp.com",
-            projectId: "online2-22f95",
-            storageBucket: "online2-22f95.firebasestorage.app",
-            messagingSenderId: "157259222281",
-            appId: "1:157259222281:web:42949895fec1deb36357d8"
-          }
-        },
-        {
-          id: 'main_03',
-          name: 'Luồng chính 3',
-          enabled: true,
-          config: {
-            apiKey: "AIzaSyDKD07pnj003DCalC71hshVdnnz79yp6Rk",
-            authDomain: "online3-47f27.firebaseapp.com",
-            projectId: "online3-47f27",
-            storageBucket: "online3-47f27.firebasestorage.app",
-            messagingSenderId: "1032529429666",
-            appId: "1:1032529429666:web:d855322c32e7247779c3fb"
-          }
-        },
-        {
-          id: 'main_04',
-          name: 'Luồng chính 4',
-          enabled: true,
-          config: {
-            apiKey: "AIzaSyDzx1khEeux8Rpw4E2mw9OQyJ-WSQRdA7c",
-            authDomain: "online4-157a6.firebaseapp.com",
-            projectId: "online4-157a6",
-            storageBucket: "online4-157a6.firebasestorage.app",
-            messagingSenderId: "660764526389",
-            appId: "1:660764526389:web:2da707ab2ee82254872e7c"
-          }
-        },
-        {
-          id: 'main_05',
-          name: 'Luồng chính 5',
-          enabled: true,
-          config: {
-            apiKey: "AIzaSyAp8jhAQGjLZpuBt2ttiF15rsOw3zwq35A",
-            authDomain: "online5-f802e.firebaseapp.com",
-            projectId: "online5-f802e",
-            storageBucket: "online5-f802e.firebasestorage.app",
-            messagingSenderId: "969408962737",
-            appId: "1:969408962737:web:48495502a0d561254c8290"
-          }
-        },
-        {
-          id: 'main_06',
-          name: 'Luồng chính 6',
-          enabled: true,
-          config: {
-            apiKey: "AIzaSyBjCj6AXb9vtl5fWTZlZzrt9U0V9BYxhBw",
-            authDomain: "online6-4f3f5.firebaseapp.com",
-            projectId: "online6-4f3f5",
-            storageBucket: "online6-4f3f5.firebasestorage.app",
-            messagingSenderId: "311685061018",
-            appId: "1:311685061018:web:649bb3206ba22e1d5f0223"
-          }
-        },
-        {
-          id: 'main_07',
-          name: 'Luồng chính 7',
-          enabled: true,
-          config: {
-            apiKey: "AIzaSyDjByVJYNswMTBcJJZL-Sf8qLHPcQZgzTM",
-            authDomain: "online7-426c8.firebaseapp.com",
-            projectId: "online7-426c8",
-            storageBucket: "online7-426c8.firebasestorage.app",
-            messagingSenderId: "667124909440",
-            appId: "1:667124909440:web:24fbce3c71091f748b2d65"
           }
         }
       ];
@@ -9363,7 +9288,6 @@ margin-right:0 !important;
         latestUpdates: 'latestUpdates'
       };
 
-      var ACTIVE_MAIN_FIREBASE_KEY = 'tdn_active_main_firebase_shard_v1';
       var ACTIVE_STORY_FIREBASE_KEY = 'tdn_active_story_firebase_shard_v1';
       var shardDbCache = {main:{}, story:{}};
       var shardAppCache = {main:{}, story:{}};
@@ -9432,9 +9356,11 @@ margin-right:0 !important;
         return list[0] || null;
       }
       function getActiveShardId(type){
-        var key = type === 'main' ? ACTIVE_MAIN_FIREBASE_KEY : ACTIVE_STORY_FIREBASE_KEY;
+        // Luồng chính đã khóa cố định vào main_01 để mọi máy dùng chung 1 nơi lưu số liệu.
+        if(type === 'main') return firstShardId('main');
+        var key = ACTIVE_STORY_FIREBASE_KEY;
         var memoryId = activeShardMemory[type] || '';
-        var saved = memoryId || storageGet(key) || (type === 'main' ? window.TDN_ACTIVE_MAIN_FIREBASE_ID : window.TDN_ACTIVE_STORY_FIREBASE_ID) || '';
+        var saved = memoryId || storageGet(key) || window.TDN_ACTIVE_STORY_FIREBASE_ID || '';
         var shard = findShard(type, saved);
         if(shard){
           activeShardMemory[type] = shard.id;
@@ -9443,20 +9369,24 @@ margin-right:0 !important;
         return firstShardId(type);
       }
       function setActiveShardId(type, id){
+        // Admin không còn đổi luồng chính; gọi nhầm cũng luôn trả về main_01.
+        if(type === 'main'){
+          var mainShard = findShard('main', firstShardId('main'));
+          if(!mainShard) return '';
+          activeShardMemory.main = mainShard.id;
+          var mainDb = getShardDb('main', mainShard.id);
+          window.TDN_ACTIVE_MAIN_FIREBASE_ID = mainShard.id;
+          window.TDN_MAIN_FIRESTORE_DB = mainDb;
+          return mainShard.id;
+        }
         var shard = findShard(type, id);
         if(!shard) return '';
-        var key = type === 'main' ? ACTIVE_MAIN_FIREBASE_KEY : ACTIVE_STORY_FIREBASE_KEY;
         activeShardMemory[type] = shard.id;
-        storageSet(key, shard.id);
+        storageSet(ACTIVE_STORY_FIREBASE_KEY, shard.id);
         var db = getShardDb(type, shard.id);
-        if(type === 'main'){
-          window.TDN_ACTIVE_MAIN_FIREBASE_ID = shard.id;
-          window.TDN_MAIN_FIRESTORE_DB = db;
-        }else{
-          window.TDN_ACTIVE_STORY_FIREBASE_ID = shard.id;
-          window.TDN_STORY_FIRESTORE_DB = db;
-          window.TDN_FIRESTORE_DB = db;
-        }
+        window.TDN_ACTIVE_STORY_FIREBASE_ID = shard.id;
+        window.TDN_STORY_FIRESTORE_DB = db;
+        window.TDN_FIRESTORE_DB = db;
         try{ document.dispatchEvent(new CustomEvent('tdn:firebase-active-shard-change', {detail:{type:type, id:shard.id, name:shard.name}})); }catch(error){}
         return shard.id;
       }
@@ -9532,11 +9462,8 @@ margin-right:0 !important;
         return getStoryDb(id || getActiveShardId('story'));
       }
       function getStoryShardList(){ return getEnabledList('story').map(function(item){ return {id:item.id, name:item.name, active:item.id === getActiveShardId('story')}; }); }
-      function getMainShardList(){ return getEnabledList('main').map(function(item){ return {id:item.id, name:item.name, active:item.id === getActiveShardId('main')}; }); }
       function getActiveStoryShardId(){ return getActiveShardId('story'); }
-      function getActiveMainShardId(){ return getActiveShardId('main'); }
       function setActiveStoryShardId(id){ return setActiveShardId('story', id); }
-      function setActiveMainShardId(id){ return setActiveShardId('main', id); }
 
       function serverTimestamp(){ try{ return window.firebase.firestore.FieldValue.serverTimestamp(); }catch(error){ return new Date(); } }
       function increment(value){ try{ return window.firebase.firestore.FieldValue.increment(Number(value) || 0); }catch(error){ return Number(value) || 0; } }
@@ -9603,7 +9530,7 @@ margin-right:0 !important;
         try{ if(primaryId) db = getShardDb('main', primaryId); }catch(error){}
         if(!db){ try{ db = getMainDb(); }catch(inner){} }
         if(db){
-          try{ window.TDN_CANONICAL_MAIN_FIREBASE_ID = primaryId || getActiveMainShardId(); }catch(error){}
+          try{ window.TDN_CANONICAL_MAIN_FIREBASE_ID = primaryId || firstShardId('main'); }catch(error){}
           try{ window.TDN_MAIN_FIRESTORE_DB = db; }catch(error){}
         }
         return db || null;
@@ -9769,27 +9696,6 @@ margin-right:0 !important;
         var shape = copyStoryStatsShape(data) || normalizeStoryStatsShape(data, id, true);
         shape.storyId = id || shape.storyId;
 
-        // Giữ số lượt xem đã cộng nhanh trên màn hình trong lúc Firebase còn đang trả snapshot cũ.
-        // Tránh lỗi: bấm vào truyện thấy vẫn số cũ, vài giây sau mới nhảy hoặc bị kéo tụt lại.
-        try{
-          var optimisticUntil = readMainCounterNumber(story.__tdnOptimisticViewUntil, 0);
-          var stillOptimistic = optimisticUntil && Date.now() < optimisticUntil;
-          var minTotal = readMainCounterNumber(story.__tdnOptimisticMinViewsTotal, 0);
-          var minDay = readMainCounterNumber(story.__tdnOptimisticMinViewsDay, 0);
-          var minWeek = readMainCounterNumber(story.__tdnOptimisticMinViewsWeek, 0);
-          var minMonth = readMainCounterNumber(story.__tdnOptimisticMinViewsMonth, 0);
-          if(stillOptimistic && minTotal){
-            shape.viewsTotal = Math.max(readMainCounterNumber(shape.viewsTotal, 0), minTotal);
-            shape.viewsDay = Math.max(readMainCounterNumber(shape.viewsDay, 0), minDay);
-            shape.viewsWeek = Math.max(readMainCounterNumber(shape.viewsWeek, 0), minWeek);
-            shape.viewsMonth = Math.max(readMainCounterNumber(shape.viewsMonth, 0), minMonth);
-            if(String(shape.source || '').indexOf('firebase') === 0 && readMainCounterNumber(shape.viewsTotal, 0) >= minTotal){
-              // Đã thấy Firebase bắt kịp số mới, nhưng không xóa guard ngay.
-              // Một snapshot cũ có thể vẫn tới sau đó và kéo 19 tụt về 18.
-              story.__tdnOptimisticViewConfirmedAt = Date.now();
-            }
-          }
-        }catch(error){}
 
         story.__tdnMainCounterSynced = true;
         story.__tdnMainCounterSyncedAt = Date.now();
@@ -9997,89 +9903,76 @@ margin-right:0 !important;
         }
       }
 
-      function optimisticAddView(story){
-        var id = storyKey(story);
-        if(!id || !story) return false;
-        var keys = storyStatsNowKeys();
-        var old = getStoryStatsFromMap(id) || normalizeStoryStatsShape(story || {}, id, true) || makeZeroStoryStatsShape(id);
-        var next = {
-          storyId:id,
-          viewsTotal:readMainCounterNumber(old.viewsTotal, 0) + 1,
-          viewsDay:(safeText(old.dayKey) === keys.dayKey ? readMainCounterNumber(old.viewsDay, 0) : 0) + 1,
-          viewsWeek:(safeText(old.weekKey) === keys.weekKey ? readMainCounterNumber(old.viewsWeek, 0) : 0) + 1,
-          viewsMonth:(safeText(old.monthKey) === keys.monthKey ? readMainCounterNumber(old.viewsMonth, 0) : 0) + 1,
-          dayKey:keys.dayKey,
-          weekKey:keys.weekKey,
-          monthKey:keys.monthKey,
-          source:'optimistic_storyStats',
-          updatedAt:Date.now()
-        };
-        story.__tdnOptimisticViewUntil = Date.now() + (10 * 60 * 1000);
-        story.__tdnOptimisticMinViewsTotal = next.viewsTotal;
-        story.__tdnOptimisticMinViewsDay = next.viewsDay;
-        story.__tdnOptimisticMinViewsWeek = next.viewsWeek;
-        story.__tdnOptimisticMinViewsMonth = next.viewsMonth;
-        setStoryStatsInMap(id, next);
-        applyStoryStatsToStory(story, next);
-        saveStoryStatsCache();
-        refreshPublicUi(story);
-        return true;
-      }
 
       function recordView(story){
         var id = storyKey(story);
         var ref = storyStatsRef(story);
-        if(!id || !ref) return Promise.resolve(false);
+        var actionRef = readerActionRef(story);
+        if(!id || !ref || !actionRef) return Promise.resolve({ok:false, counted:false, reason:'missing_ref'});
         var keys = storyStatsNowKeys();
-        function applyAfterWrite(shape){
-          shape = normalizeStoryStatsShape(shape, id, true);
+        var nowMs = Date.now();
+        var browserId = getBrowserClientId();
+        function buildNextStats(old){
+          old = old || {};
+          var oldShape = normalizeStoryStatsShape(old, id, true);
+          return {
+            storyId:id,
+            viewsTotal:readMainCounterNumber(oldShape.viewsTotal, 0) + 1,
+            viewsDay:(safeText(old.dayKey) === keys.dayKey ? readMainCounterNumber(old.viewsDay, 0) : 0) + 1,
+            viewsWeek:(safeText(old.weekKey) === keys.weekKey ? readMainCounterNumber(old.viewsWeek, 0) : 0) + 1,
+            viewsMonth:(safeText(old.monthKey) === keys.monthKey ? readMainCounterNumber(old.viewsMonth, 0) : 0) + 1,
+            dayKey:keys.dayKey,
+            weekKey:keys.weekKey,
+            monthKey:keys.monthKey,
+            updatedAt:serverTimestamp()
+          };
+        }
+        function applyAfterWrite(result){
+          if(!result || !result.shape) return {ok:false, counted:false, reason:'empty_result'};
+          var shape = normalizeStoryStatsShape(result.shape, id, true);
           shape.source = 'firebase_storyStats';
           setStoryStatsInMap(id, shape);
           applyStoryStatsToStory(story, shape);
           saveStoryStatsCache();
           refreshPublicUi(story);
-          return true;
+          return {
+            ok:true,
+            counted:!!result.counted,
+            cooldownAt:readMainCounterNumber(result.cooldownAt, nowMs),
+            shape:shape
+          };
         }
         try{
           return ref.firestore.runTransaction(function(tx){
-            return tx.get(ref).then(function(snap){
-              var old = snap && snap.exists ? (snap.data() || {}) : {};
-              var oldShape = normalizeStoryStatsShape(old, id, true);
-              var next = {
-                storyId:id,
-                viewsTotal:readMainCounterNumber(oldShape.viewsTotal, 0) + 1,
-                viewsDay:(safeText(old.dayKey) === keys.dayKey ? readMainCounterNumber(old.viewsDay, 0) : 0) + 1,
-                viewsWeek:(safeText(old.weekKey) === keys.weekKey ? readMainCounterNumber(old.viewsWeek, 0) : 0) + 1,
-                viewsMonth:(safeText(old.monthKey) === keys.monthKey ? readMainCounterNumber(old.viewsMonth, 0) : 0) + 1,
-                dayKey:keys.dayKey,
-                weekKey:keys.weekKey,
-                monthKey:keys.monthKey,
-                updatedAt:serverTimestamp()
-              };
+            return Promise.all([tx.get(actionRef), tx.get(ref)]).then(function(snaps){
+              var actionSnap = snaps[0];
+              var statsSnap = snaps[1];
+              var action = actionSnap && actionSnap.exists ? (actionSnap.data() || {}) : {};
+              var oldStats = statsSnap && statsSnap.exists ? (statsSnap.data() || {}) : {};
+              var lastViewedAtMs = readMainCounterNumber(action.lastViewedAtMs, action.lastViewAtMs, action.viewedAtMs, 0);
+              if(lastViewedAtMs && (nowMs - lastViewedAtMs) < VIEW_COOLDOWN_MS){
+                return {
+                  counted:false,
+                  cooldownAt:lastViewedAtMs,
+                  shape:normalizeStoryStatsShape(oldStats, id, true)
+                };
+              }
+              var next = buildNextStats(oldStats);
               tx.set(ref, next, {merge:true});
-              return next;
+              tx.set(actionRef, {
+                storyId:id,
+                browserId:browserId,
+                lastViewedAtMs:nowMs,
+                lastViewAtMs:nowMs,
+                lastViewedAt:serverTimestamp(),
+                updatedAt:serverTimestamp()
+              }, {merge:true});
+              return {counted:true, cooldownAt:nowMs, shape:next};
             });
           }).then(applyAfterWrite).catch(function(error){
-            console.warn('Transaction storyStats bị chặn:', error);
-            return ref.get().then(function(doc){
-              var old = doc && doc.exists ? (doc.data() || {}) : {};
-              var oldShape = normalizeStoryStatsShape(old, id, true);
-              var next = {
-                storyId:id,
-                viewsTotal:readMainCounterNumber(oldShape.viewsTotal, 0) + 1,
-                viewsDay:(safeText(old.dayKey) === keys.dayKey ? readMainCounterNumber(old.viewsDay, 0) : 0) + 1,
-                viewsWeek:(safeText(old.weekKey) === keys.weekKey ? readMainCounterNumber(old.viewsWeek, 0) : 0) + 1,
-                viewsMonth:(safeText(old.monthKey) === keys.monthKey ? readMainCounterNumber(old.viewsMonth, 0) : 0) + 1,
-                dayKey:keys.dayKey,
-                weekKey:keys.weekKey,
-                monthKey:keys.monthKey,
-                updatedAt:serverTimestamp()
-              };
-              return ref.set(next, {merge:true}).then(function(){ return next; });
-            }).then(applyAfterWrite).catch(function(inner){
-              console.warn('Không ghi được storyStats lượt xem:', inner);
-              return false;
-            });
+            // Nếu rules cũ chưa cho đọc/ghi readerActions bằng transaction thì vẫn không cộng bừa nhiều lần.
+            console.warn('Transaction storyStats/readerActions bị chặn:', error);
+            return false;
           });
         }catch(error){
           console.warn('Không ghi được storyStats lượt xem:', error);
@@ -10164,9 +10057,6 @@ margin-right:0 !important;
         getActiveStoryShardId:getActiveStoryShardId,
         setActiveStoryShardId:setActiveStoryShardId,
         getStoryShardList:getStoryShardList,
-        getActiveMainShardId:getActiveMainShardId,
-        setActiveMainShardId:setActiveMainShardId,
-        getMainShardList:getMainShardList,
         getMainApp:initDefaultMainApp,
         getStoryApp:initNamedStoryApp,
         serverTimestamp:serverTimestamp,
@@ -10175,7 +10065,6 @@ margin-right:0 !important;
         storyStatsRef:storyStatsRef,
         counterRef:counterRef,
         readerActionRef:readerActionRef,
-        optimisticAddView:optimisticAddView,
         recordView:recordView,
         recordBookmark:recordBookmark,
         syncStoryListCountersOnce:syncStoryListCountersOnce,
@@ -10674,8 +10563,9 @@ svg *{
 .tdn-result-stats .tdn-result-view-stat{
   display:none !important;
 }
-#detailPage #detailViews{
-  display:inline !important;
+#detailPage #detailViews,
+#detailPage .tdn-hidden-view-count{
+  display:none !important;
 }
 </style>
 
@@ -10727,6 +10617,7 @@ body.chapter-player-active.chapter-player-collapsed .chapter-reader .reader-body
 
 
 
+<!-- tdn-clean-main-single-firebase-v7 -->
 </head>
 <body>
   <script>(function(){
@@ -11248,18 +11139,11 @@ body.chapter-player-active.chapter-player-collapsed .chapter-reader .reader-body
 
             <section class="admin-add-field admin-modern-field admin-modern-field-full tdn-firebase-writer-box" id="tdnFirebaseWriterBox" aria-label="Chọn Firebase lưu dữ liệu mới">
               <div class="tdn-firebase-swipe-shell">
-                <div class="tdn-firebase-swipe-tabs" role="tablist" aria-label="Chọn loại luồng Firebase">
-                  <button type="button" class="tdn-firebase-swipe-tab is-active" id="tdnFirebaseTabMain" data-firebase-page-target="0" role="tab" aria-selected="true" aria-controls="tdnFirebasePageMain">Luồng chính</button>
-                  <button type="button" class="tdn-firebase-swipe-tab" id="tdnFirebaseTabStory" data-firebase-page-target="1" role="tab" aria-selected="false" aria-controls="tdnFirebasePageStory">Luồng truyện</button>
+                <div class="tdn-firebase-swipe-tabs tdn-story-flow-only-tabs" role="tablist" aria-label="Chọn luồng Firebase truyện">
+                  <button type="button" class="tdn-firebase-swipe-tab is-active" id="tdnFirebaseTabStory" data-firebase-page-target="0" role="tab" aria-selected="true" aria-controls="tdnFirebasePageStory">Luồng truyện</button>
                 </div>
-                <div class="tdn-firebase-swipe-viewport" id="tdnFirebaseSwipeViewport" aria-live="polite">
-                  <section class="tdn-firebase-swipe-page" id="tdnFirebasePageMain" data-firebase-page="0" role="tabpanel" aria-labelledby="tdnFirebaseTabMain">
-                    <label class="tdn-firebase-writer-field">
-                      <select class="tdn-firebase-native-select" id="tdnMainFirebaseSelect" aria-label="Chọn Firebase lưu luồng chính" tabindex="-1"></select>
-                      <div class="tdn-firebase-choice-list" id="tdnMainFirebaseChoices" role="group" aria-label="Chọn Firebase lưu luồng chính"></div>
-                    </label>
-                  </section>
-                  <section class="tdn-firebase-swipe-page" id="tdnFirebasePageStory" data-firebase-page="1" role="tabpanel" aria-labelledby="tdnFirebaseTabStory">
+                <div class="tdn-firebase-swipe-viewport tdn-story-flow-only-viewport" id="tdnFirebaseSwipeViewport" aria-live="polite">
+                  <section class="tdn-firebase-swipe-page" id="tdnFirebasePageStory" data-firebase-page="0" role="tabpanel" aria-labelledby="tdnFirebaseTabStory">
                     <label class="tdn-firebase-writer-field">
                       <select class="tdn-firebase-native-select" id="tdnStoryFirebaseSelect" aria-label="Chọn Firebase lưu truyện mới" tabindex="-1"></select>
                       <div class="tdn-firebase-choice-list" id="tdnStoryFirebaseChoices" role="group" aria-label="Chọn Firebase lưu truyện mới"></div>
@@ -11587,12 +11471,7 @@ body.chapter-player-active.chapter-player-collapsed .chapter-reader .reader-body
               <div class="detail-genre-list" id="detailGenreList" aria-label="Thể loại" hidden></div>
             </div>
             <div class="detail-meta-row">
-              <span class="detail-meta-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2.6 12s3.4-6 9.4-6 9.4 6 9.4 6-3.4 6-9.4 6-9.4-6-9.4-6Z"></path><circle cx="12" cy="12" r="2.7"></circle></svg></span>
-              <span class="detail-meta-label">Lượt xem:</span>
-              <strong class="detail-meta-value"><span id="detailViews"></span></strong>
-            </div>
-            <div class="detail-meta-row">
-              <span class="detail-meta-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4.5 5.2A2.2 2.2 0 0 1 6.7 3h4.1c1.1 0 2.2.35 3.2 1v16c-1-.65-2.1-1-3.2-1H6.7a2.2 2.2 0 0 1-2.2-2.2V5.2Z"></path><path d="M14 4c1-.65 2.1-1 3.2-1h.1a2.2 2.2 0 0 1 2.2 2.2v11.6a2.2 2.2 0 0 1-2.2 2.2h-.1c-1.1 0-2.2.35-3.2 1"></path></svg></span>
+              <span class="detail-meta-icon detail-chapter-count-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6.5 4.5h8.2L18 7.8v11.7H6.5V4.5Z"></path><path d="M14.7 4.5v3.3H18"></path><path d="M9 11h6"></path><path d="M9 14.5h6"></path><path d="M9 18h4"></path></svg></span>
               <span class="detail-meta-label">Số chương:</span>
               <strong class="detail-meta-value"><span id="detailChapterCount"></span></strong>
             </div>
@@ -11614,6 +11493,7 @@ body.chapter-player-active.chapter-player-collapsed .chapter-reader .reader-body
           </div>
 
           <div class="detail-hidden-runtime" aria-hidden="true" hidden>
+            <span id="detailViews" class="tdn-hidden-view-count"></span>
             <span id="detailSaveBadge"><span id="detailSaveBadgeText"></span><span id="detailSaveCount">0</span></span>
           </div>
         </section>
@@ -13808,37 +13688,44 @@ body.reader-dark .reader-audio-speed-value{
       let canRecord = false;
       try{ canRecord = !!(window.TDNFirebaseFlows && typeof window.TDNFirebaseFlows.recordView === 'function'); }catch(error){ canRecord = false; }
       if(!canRecord) return false;
-      // Không ghi cooldown thật trước khi Firebase ghi thành công.
-      // Chỉ dùng STORY_VIEW_PENDING_KEYS để chặn bấm lặp trong lúc đang ghi.
 
-      // Cộng nhanh ngay trên giao diện, Firebase ghi nền phía sau.
-      // Snapshot cũ từ Firebase sẽ không được kéo số này tụt xuống trong vài giây đầu.
-      try{
-        if(window.TDNFirebaseFlows && typeof window.TDNFirebaseFlows.optimisticAddView === 'function'){
-          window.TDNFirebaseFlows.optimisticAddView(story);
-        }
-        refreshStoryViewDisplays(story);
-      }catch(error){}
-
+      // Khóa 6 tiếng ngay khi bắt đầu ghi, không chờ Firebase trả về.
+      // Nếu người đọc thoát ra rồi bấm lại sau 1 giây, lần sau vẫn bị chặn đúng cooldown.
+      markStoryViewCooldown(storyId, now);
       STORY_VIEW_PENDING_KEYS.add(pendingKey);
       try{
         const writePromise = window.TDNFirebaseFlows.recordView(story);
-        Promise.resolve(writePromise).then(function(ok){
-          if(ok) markStoryViewCooldown(storyId, now);
-          if(!ok){
-            try{ clearStoryViewCooldown(storyId); }catch(error){}
-            // Không sync lại Firebase ngay lúc lỗi, vì snapshot cũ sẽ kéo số vừa cộng nhanh tụt xuống.
-            // Lần mở sau sẽ thử ghi lại nếu chưa vào cooldown thành công.
+        Promise.resolve(writePromise).then(function(result){
+          const ok = result === true || !!(result && result.ok);
+          const counted = result === true || !!(result && result.counted);
+          const cooldownAt = result && result.cooldownAt ? Number(result.cooldownAt) : now;
+          if(ok){
+            markStoryViewCooldown(storyId, Number.isFinite(cooldownAt) ? cooldownAt : now);
+            if(counted){
+              refreshStoryViewDisplays(story);
+            }else if(window.TDNFirebaseFlows && typeof window.TDNFirebaseFlows.syncStoryCounterOnce === 'function'){
+              window.TDNFirebaseFlows.syncStoryCounterOnce(story).then(function(){ refreshStoryViewDisplays(story); });
+            }
+          }else{
+            // Không xóa cooldown ngay khi ghi lỗi để tránh bấm ra/vào liên tục làm tăng ảo trên từng máy.
+            // Lượt xem sẽ thử lại sau khi hết cooldown hoặc khi người dùng mở bằng phiên duyệt mới.
+            markStoryViewCooldown(storyId, now);
+            try{
+              if(window.TDNFirebaseFlows && typeof window.TDNFirebaseFlows.syncStoryCounterOnce === 'function'){
+                window.TDNFirebaseFlows.syncStoryCounterOnce(story).then(function(){ refreshStoryViewDisplays(story); });
+              }
+            }catch(syncError){}
           }
           STORY_VIEW_PENDING_KEYS.delete(pendingKey);
         }, function(error){
           STORY_VIEW_PENDING_KEYS.delete(pendingKey);
-          try{ clearStoryViewCooldown(storyId); }catch(innerError){}
+          markStoryViewCooldown(storyId, now);
           console.warn('Không tăng được lượt xem Firebase:', error);
         });
         return true;
       }catch(error){
         STORY_VIEW_PENDING_KEYS.delete(pendingKey);
+        markStoryViewCooldown(storyId, now);
         console.warn('Không tăng được lượt xem:', error);
       }
       return false;
@@ -33173,7 +33060,7 @@ body.reader-dark #detailPage .detail-read-actions,
 body .reader-shell.detail-mode .detail-read-actions{
 order:5 !important;
 display:grid !important;
-grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+grid-template-columns:1fr !important;
 gap:12px !important;
 width:100% !important;
 max-width:680px !important;
@@ -40631,7 +40518,7 @@ box-shadow:0 10px 24px rgba(17,24,39,.08) !important;
 box-sizing:border-box !important;
 }#morePage .tdn-more-quick-filter-panel.is-open{
 display:grid !important;
-grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+grid-template-columns:1fr !important;
 gap:7px !important;
 }#morePage .tdn-more-quick-filter-option{
 min-width:0 !important;
@@ -40886,7 +40773,7 @@ font-weight:850 !important;
 }
 #morePage .tdn-more-quick-filter-btn::after{right:8px !important;width:6px !important;height:6px !important;}
 #morePage .tdn-more-quick-filter-panel{margin-top:5px !important;padding:7px !important;border-radius:8px !important;}
-#morePage .tdn-more-quick-filter-panel.is-open{grid-template-columns:repeat(2,minmax(0,1fr)) !important;}
+#morePage .tdn-more-quick-filter-panel.is-open{grid-template-columns:1fr !important;}
 #morePage .tdn-more-quick-filter-option{min-height:36px !important;padding:7px 6px !important;font-size:12px !important;}
 .tdn-more-genre-dialog{
 width:calc(100vw - 20px) !important;
@@ -41941,7 +41828,7 @@ body.reader-dark #adminPage .tdn-firebase-choice-btn.is-active{
 }
 #adminPage .tdn-firebase-swipe-tabs{
   display:grid !important;
-  grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+  grid-template-columns:1fr !important;
   gap:10px !important;
 }
 #adminPage .tdn-firebase-swipe-tab{
@@ -42004,8 +41891,6 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
 (function(){
   'use strict';
 
-  var currentPageIndex = 0;
-
   function $(id){ return document.getElementById(id); }
   function flows(){ return window.TDNFirebaseFlows || null; }
 
@@ -42017,7 +41902,7 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
       .replace(/"/g,'&quot;');
   }
 
-  function fillSelect(select, list, active){
+  function fillStorySelect(select, list, active){
     if(!select) return;
     var current = String(active || '').trim();
     select.innerHTML = (Array.isArray(list) ? list : []).map(function(item){
@@ -42027,7 +41912,7 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
     }).join('');
   }
 
-  function renderChoices(container, list, active, type){
+  function renderStoryChoices(container, list, active){
     if(!container) return;
     var current = String(active || '').trim();
     container.innerHTML = (Array.isArray(list) ? list : []).map(function(item){
@@ -42035,50 +41920,17 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
       var name = String(item && item.name || id).trim() || id;
       var activeClass = id === current ? ' is-active' : '';
       var pressed = id === current ? 'true' : 'false';
-      return '<button type="button" class="tdn-firebase-choice-btn' + activeClass + '" data-firebase-type="' + escapeHtml(type) + '" data-firebase-id="' + escapeHtml(id) + '" aria-pressed="' + pressed + '">' + escapeHtml(name) + '</button>';
+      return '<button type="button" class="tdn-firebase-choice-btn' + activeClass + '" data-firebase-id="' + escapeHtml(id) + '" aria-pressed="' + pressed + '">' + escapeHtml(name) + '</button>';
     }).join('');
   }
 
   function sync(){
     var api = flows();
     if(!api) return;
-    var storySelect = $('tdnStoryFirebaseSelect');
-    var mainSelect = $('tdnMainFirebaseSelect');
     var storyList = typeof api.getStoryShardList === 'function' ? api.getStoryShardList() : [];
-    var mainList = typeof api.getMainShardList === 'function' ? api.getMainShardList() : [];
     var activeStory = typeof api.getActiveStoryShardId === 'function' ? api.getActiveStoryShardId() : (storyList[0] && storyList[0].id || '');
-    var activeMain = typeof api.getActiveMainShardId === 'function' ? api.getActiveMainShardId() : (mainList[0] && mainList[0].id || '');
-
-    fillSelect(storySelect, storyList, activeStory);
-    fillSelect(mainSelect, mainList, activeMain);
-    renderChoices($('tdnStoryFirebaseChoices'), storyList, activeStory, 'story');
-    renderChoices($('tdnMainFirebaseChoices'), mainList, activeMain, 'main');
-  }
-
-  function updateSwipeTabState(index){
-    currentPageIndex = index === 1 ? 1 : 0;
-    var tabs = document.querySelectorAll('#tdnFirebaseWriterBox .tdn-firebase-swipe-tab');
-    tabs.forEach(function(tab, tabIndex){
-      var active = tabIndex === currentPageIndex;
-      tab.classList.toggle('is-active', active);
-      tab.setAttribute('aria-selected', active ? 'true' : 'false');
-    });
-  }
-
-  function scrollToPage(index, smooth){
-    var viewport = $('tdnFirebaseSwipeViewport');
-    if(!viewport) return;
-    currentPageIndex = index === 1 ? 1 : 0;
-    var left = viewport.clientWidth * currentPageIndex;
-    viewport.scrollTo({ left: left, behavior: smooth === false ? 'auto' : 'smooth' });
-    updateSwipeTabState(currentPageIndex);
-  }
-
-  function syncSwipeStateFromScroll(){
-    var viewport = $('tdnFirebaseSwipeViewport');
-    if(!viewport || !viewport.clientWidth) return;
-    var nextIndex = Math.round(viewport.scrollLeft / viewport.clientWidth);
-    updateSwipeTabState(nextIndex);
+    fillStorySelect($('tdnStoryFirebaseSelect'), storyList, activeStory);
+    renderStoryChoices($('tdnStoryFirebaseChoices'), storyList, activeStory);
   }
 
   function setOpen(open){
@@ -42089,39 +41941,31 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
       panel.hidden = false;
       fab.setAttribute('aria-expanded', 'true');
       sync();
-      setTimeout(function(){ scrollToPage(currentPageIndex || 0, false); }, 0);
     }else{
       panel.hidden = true;
       fab.setAttribute('aria-expanded', 'false');
     }
   }
 
-  function setActive(type, id){
-    type = String(type || '').trim();
+  function setActiveStory(id){
     id = String(id || '').trim();
-    if(!type || !id) return;
     var api = flows();
-    if(!api) return;
-
-    var nextId = '';
-    if(type === 'main' && typeof api.setActiveMainShardId === 'function'){
-      nextId = api.setActiveMainShardId(id);
-      var mainSelect = $('tdnMainFirebaseSelect');
-      if(mainSelect && nextId) mainSelect.value = nextId;
-    }
-    if(type === 'story' && typeof api.setActiveStoryShardId === 'function'){
-      nextId = api.setActiveStoryShardId(id);
-      var storySelect = $('tdnStoryFirebaseSelect');
-      if(storySelect && nextId) storySelect.value = nextId;
-    }
+    if(!api || !id || typeof api.setActiveStoryShardId !== 'function') return;
+    var nextId = api.setActiveStoryShardId(id);
+    var storySelect = $('tdnStoryFirebaseSelect');
+    if(storySelect && nextId) storySelect.value = nextId;
     sync();
   }
 
   var choiceTouchState = {x:0, y:0, moved:false};
 
-  function handleChoicePointerDown(event){
+  function choiceButtonFromEvent(event){
     var target = event.target;
-    var btn = target && target.closest ? target.closest('.tdn-firebase-choice-btn') : null;
+    return target && target.closest ? target.closest('.tdn-firebase-choice-btn') : null;
+  }
+
+  function handleChoicePointerDown(event){
+    var btn = choiceButtonFromEvent(event);
     if(!btn) return;
     var point = event.touches && event.touches[0] ? event.touches[0] : event;
     choiceTouchState.x = Number(point.clientX) || 0;
@@ -42130,8 +41974,7 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
   }
 
   function handleChoicePointerMove(event){
-    var target = event.target;
-    var btn = target && target.closest ? target.closest('.tdn-firebase-choice-btn') : null;
+    var btn = choiceButtonFromEvent(event);
     if(!btn) return;
     var point = event.touches && event.touches[0] ? event.touches[0] : event;
     var dx = Math.abs((Number(point.clientX) || 0) - choiceTouchState.x);
@@ -42140,40 +41983,21 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
   }
 
   function handleChoiceEvent(event){
-    var target = event.target;
-    var btn = target && target.closest ? target.closest('.tdn-firebase-choice-btn') : null;
-    if(!btn) return;
-
-    // Chỉ chọn khi bấm/tap thật. Nếu vừa chạm rồi kéo để cuộn/kéo ngang thì không chọn.
-    if(choiceTouchState.moved){
-      return;
-    }
-
+    var btn = choiceButtonFromEvent(event);
+    if(!btn || choiceTouchState.moved) return;
     if(event.cancelable) event.preventDefault();
     event.stopPropagation();
     if(typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
-    setActive(btn.getAttribute('data-firebase-type'), btn.getAttribute('data-firebase-id'));
+    setActiveStory(btn.getAttribute('data-firebase-id'));
   }
 
   function bindSelectors(){
     sync();
     var storySelect = $('tdnStoryFirebaseSelect');
-    var mainSelect = $('tdnMainFirebaseSelect');
-
     if(storySelect && !storySelect.__tdnFirebasePickerBound){
       storySelect.__tdnFirebasePickerBound = true;
-      storySelect.addEventListener('change', function(){
-        setActive('story', storySelect.value);
-      });
+      storySelect.addEventListener('change', function(){ setActiveStory(storySelect.value); });
     }
-
-    if(mainSelect && !mainSelect.__tdnFirebasePickerBound){
-      mainSelect.__tdnFirebasePickerBound = true;
-      mainSelect.addEventListener('change', function(){
-        setActive('main', mainSelect.value);
-      });
-    }
-
     if(!document.__tdnFirebaseChoiceCaptureBound){
       document.__tdnFirebaseChoiceCaptureBound = true;
       document.addEventListener('pointerdown', handleChoicePointerDown, true);
@@ -42184,50 +42008,19 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
     }
   }
 
-  function bindSwipe(){
-    var viewport = $('tdnFirebaseSwipeViewport');
-    if(!viewport || viewport.__tdnFirebaseSwipeBound) return;
-    viewport.__tdnFirebaseSwipeBound = true;
-
-    var tabs = document.querySelectorAll('#tdnFirebaseWriterBox .tdn-firebase-swipe-tab');
-    tabs.forEach(function(tab){
-      tab.addEventListener('click', function(event){
-        event.preventDefault();
-        var index = Number(tab.getAttribute('data-firebase-page-target') || '0');
-        scrollToPage(index, true);
-      });
-    });
-
-    var scrollTimer = null;
-    viewport.addEventListener('scroll', function(){
-      if(scrollTimer) window.clearTimeout(scrollTimer);
-      scrollTimer = window.setTimeout(syncSwipeStateFromScroll, 40);
-    }, {passive:true});
-
-    window.addEventListener('resize', function(){
-      scrollToPage(currentPageIndex || 0, false);
-    });
-
-    updateSwipeTabState(0);
-    setTimeout(function(){ scrollToPage(0, false); }, 0);
-  }
-
   function bindFloatingPanel(){
     var fab = $('tdnFirebaseFab');
     var panel = $('tdnFirebaseFloatPanel');
     var root = $('tdnFirebaseFloatRoot');
     if(!fab || !panel || !root) return;
-
     if(!fab.__tdnFirebaseFabBound){
       fab.__tdnFirebaseFabBound = true;
       fab.addEventListener('click', function(event){
         event.preventDefault();
         event.stopPropagation();
-        var shouldOpen = panel.hidden;
-        setOpen(shouldOpen);
+        setOpen(panel.hidden);
       });
     }
-
     if(!document.__tdnFirebaseDocCloseBound){
       document.__tdnFirebaseDocCloseBound = true;
       document.addEventListener('click', function(event){
@@ -42238,18 +42031,14 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
         setOpen(false);
       }, true);
     }
-
     if(!document.__tdnFirebaseEscBound){
       document.__tdnFirebaseEscBound = true;
-      document.addEventListener('keydown', function(event){
-        if(event.key === 'Escape') setOpen(false);
-      });
+      document.addEventListener('keydown', function(event){ if(event.key === 'Escape') setOpen(false); });
     }
   }
 
   function bind(){
     bindSelectors();
-    bindSwipe();
     bindFloatingPanel();
     setOpen(false);
   }
@@ -42259,16 +42048,8 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
   }else{
     bind();
   }
-
-  document.addEventListener('tdn:firebase-active-shard-change', function(){
-    sync();
-    syncSwipeStateFromScroll();
-  });
-  window.addEventListener('pageshow', function(){
-    sync();
-    setOpen(false);
-    setTimeout(function(){ scrollToPage(currentPageIndex || 0, false); }, 0);
-  });
+  document.addEventListener('tdn:firebase-active-shard-change', sync);
+  window.addEventListener('pageshow', function(){ sync(); setOpen(false); });
 })();
 </script>
 
@@ -42545,6 +42326,7 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
     var number = Math.max(1, Number(meta && (meta.number || meta.chapterNumber || meta.order)) || 1);
     var title = trim(meta && meta.title) || ('Chương ' + number);
     var nowMs = Date.now();
+    var chapterShardId = trim(meta && (meta.storyShardId || meta.sourceFirebase || meta.firebaseShardId || meta.__tdnShardId)) || getActiveStoryShardId();
     var data = {
       storyId:storyId,
       chapterId:chapterId,
@@ -42564,9 +42346,10 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
       length:source.length,
       updatedAt:serverTimestamp(),
       updatedAtMs:nowMs,
-      storyShardId:story.storyShardId || story.sourceFirebase || story.firebaseShardId || getActiveStoryShardId(),
-      sourceFirebase:story.storyShardId || story.sourceFirebase || story.firebaseShardId || getActiveStoryShardId(),
-      firebaseShardId:story.storyShardId || story.sourceFirebase || story.firebaseShardId || getActiveStoryShardId(),
+      storyShardId:chapterShardId,
+      sourceFirebase:chapterShardId,
+      firebaseShardId:chapterShardId,
+      __tdnShardId:chapterShardId,
       deleted:false
     };
     await db.collection(STORY_COLLECTION).doc(storyId).collection('chapters').doc(chapterId).set(data, {merge:true});
@@ -42855,8 +42638,9 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
   }
   async function saveAddForm(event){
     if(event){ event.preventDefault(); event.stopImmediatePropagation(); }
-    var db = getDb();
-    if(!db){ notify('Chưa kết nối được Firestore. Kiểm tra Firebase config/rules.'); return false; }
+    var selectedShardId = getActiveStoryShardId();
+    var db = getStoryDbById(selectedShardId);
+    if(!db){ notify('Chưa kết nối được Firestore của luồng truyện ' + selectedShardId + '. Kiểm tra Firebase config/rules.'); return false; }
     var titleInput = $('adminStoryTitleInput');
     var title = trim(titleInput && titleInput.value);
     if(!title){ notify('Bạn cần nhập tên truyện.'); titleInput && titleInput.focus(); return false; }
@@ -42873,7 +42657,7 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
     var nowMs = Date.now();
     var button = document.querySelector('#adminLocalStoryForm button[type="submit"], #adminLocalStoryForm .admin-modern-submit');
     if(button) button.disabled = true;
-    setNotice('Đang đăng truyện lên Firestore...');
+    setNotice('Đang đăng truyện lên Firebase đã chọn: ' + selectedShardId + '...');
     try{
       var metas = [];
       for(var i=0;i<files.length;i+=1){
@@ -42881,11 +42665,11 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
         var file = files[i];
         var titleName = trim(editedTitles[i]) || chapterTitle(file, addTitleEntries, i, number);
         setNotice('Đang lưu chương ' + number + '/' + files.length + ': ' + titleName);
-        metas.push(await uploadChapter(db, storyId, makeChapterId(number), file, {number:number, title:titleName, sourceFileName:file.webkitRelativePath || file.name || ''}));
+        metas.push(await uploadChapter(db, storyId, makeChapterId(number), file, {number:number, title:titleName, sourceFileName:file.webkitRelativePath || file.name || '', storyShardId:selectedShardId}));
       }
-      var story = buildStoryData({storyId:storyId, slug:slug, title:title, author:author, status:status, categories:categories, intro:intro, coverUrl:coverUrl, chapters:metas, createdAtMs:nowMs, updatedAtMs:nowMs, storyShardId:getActiveStoryShardId()});
+      var story = buildStoryData({storyId:storyId, slug:slug, title:title, author:author, status:status, categories:categories, intro:intro, coverUrl:coverUrl, chapters:metas, createdAtMs:nowMs, updatedAtMs:nowMs, storyShardId:selectedShardId});
       await saveStoryDocuments(db, story);
-      upsertRuntimeStory(normalizeStory(story, storyId, metas));
+      upsertRuntimeStory(normalizeStory(story, storyId, metas, selectedShardId));
       var form = $('adminLocalStoryForm');
       if(form) form.reset();
       addSelectedFiles = [];
@@ -42998,6 +42782,10 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
       chapterCount:story.chapterCount,
       updatedAt:serverTimestamp(),
       updatedAtMs:story.updatedAtMs,
+      storyShardId:story.storyShardId,
+      sourceFirebase:story.storyShardId,
+      firebaseShardId:story.storyShardId,
+      __tdnShardId:story.storyShardId,
       deleted:false
     };
     await commitOps(db, [
@@ -43006,6 +42794,47 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
       {ref:db.collection(LATEST_UPDATES_COLLECTION).doc(story.storyId), data:latest, options:{merge:true}}
     ]);
   }
+  function findRuntimeStoryById(storyId){
+    var id = trim(storyId);
+    if(!id) return null;
+    var pools = [];
+    try{ if(Array.isArray(window.stories)) pools.push(window.stories); }catch(error){}
+    try{ if(Array.isArray(window.MOC_STORY_ADMIN_DATA)) pools.push(window.MOC_STORY_ADMIN_DATA); }catch(error){}
+    try{ pools.push(getRuntimeArray()); }catch(error){}
+    for(var p=0;p<pools.length;p+=1){
+      var list = Array.isArray(pools[p]) ? pools[p] : [];
+      for(var i=0;i<list.length;i+=1){
+        var item = list[i];
+        var sid = trim(item && (item.storyId || item.id || item.docId));
+        if(sid === id) return item;
+      }
+    }
+    return null;
+  }
+
+  async function resolveStoryTarget(storyId, preferredStory){
+    var id = trim(storyId);
+    var story = preferredStory || findRuntimeStoryById(id);
+    var shardId = trim(story && (story.storyShardId || story.sourceFirebase || story.firebaseShardId || story.__tdnShardId));
+    var db = shardId ? getStoryDbById(shardId) : null;
+    if(db) return {db:db, shardId:shardId, story:story || null, source:'storyShardId'};
+    var targets = getReadDbs();
+    for(var i=0;i<targets.length;i+=1){
+      var target = targets[i] || {};
+      if(!target.db) continue;
+      try{
+        var snap = await target.db.collection(STORY_COLLECTION).doc(id).get();
+        if(snap && snap.exists){
+          var raw = snap.data() || {};
+          var foundShardId = trim(raw.storyShardId || raw.sourceFirebase || raw.firebaseShardId || raw.__tdnShardId || target.id) || trim(target.id) || getActiveStoryShardId();
+          return {db:target.db, shardId:foundShardId, story:normalizeStory(raw, id, [], foundShardId), source:'scan_all_story_shards'};
+        }
+      }catch(error){}
+    }
+    var fallbackShardId = getActiveStoryShardId();
+    return {db:getStoryDbById(fallbackShardId), shardId:fallbackShardId, story:story || null, source:'active_fallback'};
+  }
+
   function getCurrentEditStoryId(){
     try{ if(history.state && history.state.storyId) return trim(history.state.storyId); }catch(error){}
     var title = trim($('adminEditTitleInput') && $('adminEditTitleInput').value).toLowerCase();
@@ -43017,24 +42846,26 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
     }
     return '';
   }
-  async function getExistingStory(db, storyId){
+  async function getExistingStory(db, storyId, shardId){
     var ref = db.collection(STORY_COLLECTION).doc(storyId);
     var raw = {};
     try{ var doc = await ref.get(); if(doc && doc.exists) raw = doc.data() || {}; }catch(error){}
+    var knownShardId = trim(raw.storyShardId || raw.sourceFirebase || raw.firebaseShardId || raw.__tdnShardId || shardId) || getActiveStoryShardId();
     var chapters = await readStoryChapters(db, storyId, raw);
-    return normalizeStory(raw, storyId, chapters);
+    return normalizeStory(raw, storyId, chapters, knownShardId);
   }
   async function saveEditForm(event){
     if(event){ event.preventDefault(); event.stopImmediatePropagation(); }
     var storyId = getCurrentEditStoryId();
     if(!storyId){ notify('Không tìm thấy ID truyện để lưu.'); return false; }
-    var runtimeStory = getRuntimeArray().find(function(item){ return trim(item && (item.id || item.storyId)) === storyId; }) || null;
-    var db = getDbForStory(runtimeStory || {storyId:storyId});
-    if(!db){ notify('Chưa kết nối được Firebase của truyện này.'); return false; }
+    var runtimeStory = findRuntimeStoryById(storyId);
+    var targetInfo = await resolveStoryTarget(storyId, runtimeStory);
+    var db = targetInfo.db;
+    if(!db){ notify('Chưa kết nối được Firebase gốc của truyện này.'); return false; }
     var title = trim($('adminEditTitleInput') && $('adminEditTitleInput').value);
     if(!title){ notify('Tên truyện không được trống.'); return false; }
     try{
-      var old = await getExistingStory(db, storyId);
+      var old = await getExistingStory(db, storyId, targetInfo.shardId);
       var chapters = Array.isArray(old.chapters) ? old.chapters.slice() : [];
       var nextNumber = chapters.reduce(function(max, chapter){ return Math.max(max, Number(chapter.number || chapter.chapterNumber || chapter.order) || 0); }, 0) + 1;
       var newFiles = editSelectedFiles.length ? editSelectedFiles : getFileListFromInputs('edit');
@@ -43043,7 +42874,7 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
         var file = newFiles[i];
         var titleName = chapterTitle(file, editTitleEntries, i, number);
         setNotice('Đang thêm chương ' + number + ': ' + titleName);
-        chapters.push(await uploadChapter(db, storyId, makeChapterId(number), file, {number:number, title:titleName, sourceFileName:file.webkitRelativePath || file.name || ''}));
+        chapters.push(await uploadChapter(db, storyId, makeChapterId(number), file, {number:number, title:titleName, sourceFileName:file.webkitRelativePath || file.name || '', storyShardId:targetInfo.shardId}));
       }
       var nowMs = Date.now();
       var categories = splitCategories($('adminEditGenreInput') && $('adminEditGenreInput').value);
@@ -43059,13 +42890,13 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
         chapters:chapters,
         createdAtMs:old.createdAtMs || Date.now(),
         updatedAtMs:nowMs,
-        storyShardId:getStoryShardId(old || runtimeStory)
+        storyShardId:targetInfo.shardId || getStoryShardId(old || runtimeStory)
       });
       story.views = Number(old.views) || 0;
       story.likes = Number(old.likes) || 0;
       story.bookmarks = Number(old.bookmarks) || 0;
       await saveStoryDocuments(db, story);
-      upsertRuntimeStory(normalizeStory(story, storyId, chapters, story.storyShardId));
+      upsertRuntimeStory(normalizeStory(story, storyId, chapters, targetInfo.shardId || story.storyShardId));
       editSelectedFiles = [];
       editTitleEntries = [];
       var editTxt = $('adminEditTxtInput'); if(editTxt) editTxt.value = '';
@@ -43278,10 +43109,12 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
     return total;
   }
   async function hardDeleteStory(storyId){
-    var db = getDb();
     var id = trim(storyId);
-    if(!db) throw new Error('Không kết nối được Firestore.');
     if(!id) throw new Error('Thiếu ID truyện.');
+    var runtime = findRuntimeStoryById(id);
+    var targetInfo = await resolveStoryTarget(id, runtime);
+    var db = targetInfo.db;
+    if(!db) throw new Error('Không kết nối được Firebase gốc của truyện.');
     var storyRef = db.collection(STORY_COLLECTION).doc(id);
     var raw = {};
     try{ var snap = await storyRef.get(); if(snap && snap.exists) raw = snap.data() || {}; }catch(error){}
@@ -43290,7 +43123,7 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
     var chapterIds = new Set();
     try{ (chapterSnap && chapterSnap.docs || []).forEach(function(doc){ chapterIds.add(doc.id); }); }catch(error){}
     try{ (Array.isArray(raw.chapters) ? raw.chapters : []).forEach(function(ch, i){ chapterIds.add(trim(ch.chapterId || ch.id) || makeChapterId(i+1)); }); }catch(error){}
-    var runtime = getRuntimeArray().find(function(story){ return trim(story && (story.id || story.storyId)) === id; });
+    runtime = runtime || findRuntimeStoryById(id);
     try{ (Array.isArray(runtime && runtime.chapters) ? runtime.chapters : []).forEach(function(ch, i){ chapterIds.add(trim(ch.chapterId || ch.id) || makeChapterId(i+1)); }); }catch(error){}
     var ids = Array.from(chapterIds).filter(Boolean);
     for(var i=0;i<ids.length;i+=1){
@@ -43412,8 +43245,10 @@ body.reader-dark #adminPage .tdn-firebase-swipe-note{
   function expose(){
     window.TDNStoryFlow = {
       db:getDb,
+      getWriteDb:getDb,
       getReadDbs:getReadDbs,
       getDbForStory:getDbForStory,
+      resolveStoryTarget:resolveStoryTarget,
       getActiveStoryShardId:getActiveStoryShardId,
       loadStories:loadStories,
       saveAddForm:saveAddForm,
@@ -45224,455 +45059,6 @@ body.reader-dark #adminPage #adminStoryTxtList .admin-add-file-badge{
   color:#d8b4fe !important;
 }
 </style>
-
-
-<script id="tdn-direct-publish-firebase-final-fix">
-(function(){
-  'use strict';
-  var publishing = false;
-  var CHUNK_SIZE = 85000;
-  var STORY_COLLECTION = 'stories';
-  var CHAPTER_CHUNKS_COLLECTION = 'chapterChunks';
-  var SEARCH_INDEX_COLLECTION = 'storySearchIndex';
-  var LATEST_UPDATES_COLLECTION = 'latestUpdates';
-
-  function $(id){ return document.getElementById(id); }
-  function text(value){ return String(value == null ? '' : value); }
-  function trim(value){ return text(value).trim(); }
-  function lower(value){ return trim(value).toLowerCase(); }
-  function escapeHtml(value){ return text(value).replace(/[&<>"']/g, function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]; }); }
-  function notify(message, good){
-    message = trim(message);
-    if(!message) return;
-    try{
-      if(good && typeof window.tdnShowPublishSuccess === 'function'){
-        window.tdnShowPublishSuccess(message, {mode:'firebase_direct_publish'});
-        return;
-      }
-    }catch(error){}
-    try{
-      var old = $('tdnDirectPublishNotice');
-      if(old) old.remove();
-      var node = document.createElement('div');
-      node.id = 'tdnDirectPublishNotice';
-      node.textContent = message;
-      node.style.cssText = 'position:fixed;left:50%;bottom:18px;z-index:2147483647;transform:translateX(-50%);max-width:min(92vw,560px);padding:12px 16px;border-radius:16px;background:' + (good ? '#16a34a' : '#111827') + ';color:#fff;font:800 14px/1.45 Georgia,"Times New Roman",serif;box-shadow:0 14px 34px rgba(15,23,42,.22);text-align:center;';
-      document.body.appendChild(node);
-      setTimeout(function(){ try{ node.remove(); }catch(error){} }, good ? 5200 : 4200);
-    }catch(error){ alert(message); }
-  }
-  function setNotice(message){
-    var el = $('adminAddStorageNotice') || $('adminStoryTxtHint');
-    if(el) el.textContent = trim(message);
-  }
-  function setButton(active, label){
-    var btn = $('adminSaveLocalStoryBtn');
-    if(!btn) return;
-    btn.disabled = !!active;
-    btn.setAttribute('aria-busy', active ? 'true' : 'false');
-    var safe = trim(label) || (active ? 'Đang đăng truyện...' : 'Đăng truyện');
-    btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 3 10 14"></path><path d="m21 3-7 18-4-7-7-4 18-7Z"></path></svg><span>' + escapeHtml(safe) + '</span>';
-  }
-  function getDb(){
-    try{
-      if(window.TDNFirebaseFlows && typeof window.TDNFirebaseFlows.getStoryDb === 'function'){
-        return window.TDNFirebaseFlows.getStoryDb();
-      }
-      if(window.TDN_STORY_FIRESTORE_DB) return window.TDN_STORY_FIRESTORE_DB;
-      if(window.TDN_FIRESTORE_DB) return window.TDN_FIRESTORE_DB;
-    }catch(error){}
-    return null;
-  }
-  function getActiveStoryShardId(){
-    try{
-      if(window.TDNFirebaseFlows && typeof window.TDNFirebaseFlows.getActiveStoryShardId === 'function') return trim(window.TDNFirebaseFlows.getActiveStoryShardId());
-    }catch(error){}
-    return 'story_01';
-  }
-
-  function serverTimestamp(){
-    try{ return window.firebase.firestore.FieldValue.serverTimestamp(); }catch(error){ return new Date().toISOString(); }
-  }
-  function normalizeCoverUrl(value){
-    var url = trim(value);
-    if(!url) return '';
-    try{ if(typeof window.tdnNormalizeExternalImageUrl === 'function') url = window.tdnNormalizeExternalImageUrl(url); }catch(error){}
-    if(url.startsWith('//')) url = 'https:' + url;
-    if(!/^[a-z][a-z0-9+.-]*:/i.test(url) && /^[\w.-]+\.[a-z]{2,}(\/|\?|#|$)/i.test(url)) url = 'https://' + url;
-    if(/dropbox\.com/i.test(url)){
-      url = url.replace('www.dropbox.com','dl.dropboxusercontent.com').replace('dropbox.com','dl.dropboxusercontent.com');
-      url = url.replace(/[?&]dl=0\b/i, '').replace(/[?&]dl=1\b/i, '');
-      if(url.indexOf('?') === -1) url += '?raw=1';
-      else if(!/[?&]raw=1\b/i.test(url)) url += '&raw=1';
-    }
-    return url;
-  }
-  function slugify(value){
-    return trim(value || 'truyen')
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .replace(/đ/g,'d').replace(/Đ/g,'D')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 90) || 'truyen';
-  }
-  function unique(list){
-    var out = [];
-    var seen = new Set();
-    (Array.isArray(list) ? list : []).forEach(function(item){
-      var value = trim(item);
-      var key = value.toLowerCase();
-      if(value && !seen.has(key)){ seen.add(key); out.push(value); }
-    });
-    return out;
-  }
-  function splitCategories(value){
-    if(Array.isArray(value)) return unique(value);
-    return unique(text(value).split(/[,;|/]+/));
-  }
-  function countWords(value){ return trim(value).split(/\s+/).filter(Boolean).length; }
-  function formatBytes(size){
-    var bytes = Number(size) || 0;
-    if(bytes < 1024) return bytes + ' B';
-    if(bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
-    return Math.round(bytes / 1024 / 1024 * 10) / 10 + ' MB';
-  }
-  function makeChapterId(number){ return 'c_' + String(Math.max(1, Number(number) || 1)).padStart(4, '0'); }
-  function getChapterNumberFromFile(file, fallbackIndex){
-    var raw = text(file && (file.webkitRelativePath || file.name));
-    var name = raw.split('/').pop() || raw;
-    var sources = [name, raw];
-    var patterns = [
-      /(?:chuong|chương|chapter)\s*[-_\. ]*0*(\d+)(?=\D|$)/i,
-      /(?:^|[^a-z0-9])c(?:h(?:ap(?:ter)?)?)?\s*[-_\. ]*0*(\d+)(?=\D|$)/i,
-      /(?:^|[^0-9])0*(\d+)(?=[^0-9]*\.txt$)/i,
-      /^0*(\d+)\.txt$/i,
-      /第\s*0*(\d+)\s*章/i
-    ];
-    for(var i=0;i<patterns.length;i+=1){
-      for(var j=0;j<sources.length;j+=1){
-        var match = text(sources[j]).match(patterns[i]);
-        if(match) return Number(match[1]) || fallbackIndex + 1;
-      }
-    }
-    return fallbackIndex + 1;
-  }
-  function sortTxtFiles(files){
-    return Array.from(files || []).filter(function(file){
-      return file && (/\.txt$/i.test(file.name || '') || text(file.type).indexOf('text') >= 0);
-    }).sort(function(a,b){
-      return getChapterNumberFromFile(a,0) - getChapterNumberFromFile(b,0) || text(a.webkitRelativePath || a.name).localeCompare(text(b.webkitRelativePath || b.name), 'vi', {numeric:true});
-    });
-  }
-  function readTextFile(file){
-    return new Promise(function(resolve, reject){
-      if(!file) return resolve('');
-      var reader = new FileReader();
-      reader.onload = function(){ resolve(text(reader.result).replace(/^\uFEFF/, '').replace(/\r/g, '').trim()); };
-      reader.onerror = function(){ reject(reader.error || new Error('Không đọc được TXT: ' + (file.name || ''))); };
-      reader.readAsText(file, 'utf-8');
-    });
-  }
-  function cleanTitleLine(value){ return text(value).replace(/^\uFEFF/, '').replace(/^[\s\-*•·]+/, '').replace(/\s+/g, ' ').trim(); }
-  function removeParentheses(value){
-    return cleanTitleLine(value)
-      .replace(/\s*[\(（][^\(\)（）]*[\)）]\s*/g, ' ')
-      .replace(/\s+/g, ' ')
-      .replace(/\s+([!?！？.,，。:：;；])/g, '$1')
-      .replace(/[\s\-–—,，.。:：;；]+$/g, '')
-      .trim();
-  }
-  async function readTitleEntries(){
-    var input = $('adminStoryChapterTitleInput');
-    var file = input && input.files && input.files[0];
-    if(!file) return [];
-    var raw = '';
-    try{ raw = await readTextFile(file); }catch(error){ return []; }
-    var normalized = text(raw).replace(/^\uFEFF/, '').replace(/\r/g, '\n').replace(/([^\n])\s+((?:chương|chuong|chapter)\s*\d+\b)/gi, '$1\n$2');
-    return normalized.split(/\n+/).map(function(line){
-      var value = cleanTitleLine(line);
-      var match = value.match(/^(?:chương|chuong|chapter)\s*0*(\d+)\s*(?:[:：.、,\-–—)]\s*|\s+)(.+)$/i);
-      if(!match || !match[2]) return null;
-      var name = removeParentheses(match[2].replace(/^[:：.、,\-–—)\s]+/, ''));
-      return name ? {number:Number(match[1]) || 0, name:name} : null;
-    }).filter(Boolean);
-  }
-  function titleFromFile(file, number){
-    var base = text(file && file.name).replace(/\.txt$/i, '').trim();
-    var cleaned = base.replace(/[_-]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .replace(/(?:chuong|chương|chapter)\s*[-_ ]*0*\d+/i, '')
-      .replace(/(?:^|\s)c(?:h(?:ap(?:ter)?)?)?\s*[-_ ]*0*\d+\b/i, '')
-      .replace(/^0*\d+\b/i, '')
-      .trim();
-    return cleaned || 'Chương ' + number;
-  }
-  function splitTextToChunks(source){
-    var value = text(source).replace(/^\uFEFF/, '').replace(/\r/g, '').trim();
-    if(!value) return [];
-    var chunks = [];
-    var start = 0;
-    while(start < value.length){
-      var end = Math.min(value.length, start + CHUNK_SIZE);
-      if(end < value.length){
-        var cut = value.lastIndexOf('\n\n', end);
-        if(cut < start + Math.floor(CHUNK_SIZE * 0.55)) cut = value.lastIndexOf('\n', end);
-        if(cut < start + Math.floor(CHUNK_SIZE * 0.55)) cut = end;
-        end = cut;
-      }
-      var part = value.slice(start, end).trim();
-      if(part) chunks.push(part);
-      start = end;
-      while(start < value.length && /\s/.test(value[start])) start += 1;
-    }
-    return chunks;
-  }
-  async function commitOps(db, ops){
-    if(!ops || !ops.length) return;
-    var batch = db.batch();
-    var count = 0;
-    for(var i=0;i<ops.length;i+=1){
-      var op = ops[i];
-      if(op.type === 'delete') batch.delete(op.ref);
-      else batch.set(op.ref, op.data, op.options || {merge:true});
-      count += 1;
-      if(count >= 450){ await batch.commit(); batch = db.batch(); count = 0; }
-    }
-    if(count) await batch.commit();
-  }
-  async function uploadChapter(db, storyId, chapterId, file, meta){
-    var content = await readTextFile(file);
-    if(!content) throw new Error('TXT trống: ' + (file && file.name || chapterId));
-    var chunks = splitTextToChunks(content);
-    var chunkRoot = db.collection(CHAPTER_CHUNKS_COLLECTION).doc(storyId + '_' + chapterId).collection('chunks');
-    await commitOps(db, chunks.map(function(chunk, index){
-      return {ref:chunkRoot.doc(String(index).padStart(4,'0')), data:{storyId:storyId, chapterId:chapterId, order:index, chunkIndex:index, text:chunk, length:chunk.length, updatedAt:serverTimestamp()}, options:{merge:true}};
-    }));
-    var number = Math.max(1, Number(meta && meta.number) || 1);
-    var title = trim(meta && meta.title) || ('Chương ' + number);
-    var nowMs = Date.now();
-    var chapter = {
-      storyId:storyId,
-      chapterId:chapterId,
-      id:chapterId,
-      number:number,
-      chapterNumber:number,
-      order:number,
-      title:title,
-      name:title,
-      titleLower:lower(title),
-      contentMode:'firestore_chunks',
-      storageMode:'uploaded_txt_file_to_firestore_chunks',
-      sourceFileName:trim(meta && meta.sourceFileName),
-      chunkCount:chunks.length,
-      wordCount:countWords(content),
-      length:content.length,
-      updatedAt:serverTimestamp(),
-      updatedAtMs:nowMs,
-      storyShardId:story.storyShardId || story.sourceFirebase || story.firebaseShardId || getActiveStoryShardId(),
-      sourceFirebase:story.storyShardId || story.sourceFirebase || story.firebaseShardId || getActiveStoryShardId(),
-      firebaseShardId:story.storyShardId || story.sourceFirebase || story.firebaseShardId || getActiveStoryShardId(),
-      deleted:false
-    };
-    await db.collection(STORY_COLLECTION).doc(storyId).collection('chapters').doc(chapterId).set(chapter, {merge:true});
-    return chapter;
-  }
-  function getAllSelectedTxtFiles(){
-    var files = [];
-    var input = $('adminStoryTxtInput');
-    var folder = $('adminStoryTxtFolderInput');
-    files = files.concat(Array.from((input && input.files) || []));
-    files = files.concat(Array.from((folder && folder.files) || []));
-    return sortTxtFiles(files);
-  }
-  function buildStory(input){
-    var chapters = (input.chapters || []).map(function(chapter){
-      return {
-        storyId:input.storyId,
-        chapterId:chapter.chapterId,
-        id:chapter.chapterId,
-        number:chapter.number,
-        chapterNumber:chapter.number,
-        order:chapter.order || chapter.number,
-        title:chapter.title,
-        name:chapter.title,
-        titleLower:lower(chapter.title),
-        contentMode:'firestore_chunks',
-        storageMode:'uploaded_txt_file_to_firestore_chunks',
-        sourceFileName:chapter.sourceFileName || '',
-        chunkCount:Number(chapter.chunkCount) || 0,
-        wordCount:Number(chapter.wordCount) || 0,
-        updatedAtMs:Number(chapter.updatedAtMs) || input.updatedAtMs,
-        deleted:false
-      };
-    });
-    var latest = chapters[chapters.length - 1] || null;
-    var shardId = trim(input.storyShardId || input.sourceFirebase || input.firebaseShardId || getActiveStoryShardId()) || 'story_01';
-    return {
-      storyId:input.storyId,
-      id:input.storyId,
-      slug:input.slug,
-      title:input.title,
-      short:input.title,
-      titleLower:lower(input.title),
-      author:input.author,
-      authorLower:lower(input.author),
-      coverUrl:input.coverUrl,
-      cover:input.coverUrl,
-      imageUrl:input.coverUrl,
-      intro:input.intro,
-      summary:input.intro,
-      desc:input.intro,
-      description:input.intro,
-      categories:input.categories,
-      category:input.categories.join(', '),
-      genre:input.categories.join(', '),
-      labels:input.categories,
-      status:input.status,
-      storyType:'uploaded_txt_firestore_chunks',
-      remoteSource:'firebase_shards',
-      storageType:'firebase_shards',
-      sharedPublic:true,
-      chapterCount:chapters.length,
-      totalChapters:chapters.length,
-      chapters:chapters,
-      latestChapterId:latest ? latest.chapterId : '',
-      latestChapterTitle:latest ? latest.title : '',
-      latestChapterNumber:latest ? latest.number : 0,
-      storyShardId:shardId,
-      sourceFirebase:shardId,
-      firebaseShardId:shardId,
-      __tdnShardId:shardId,
-      createdAt:serverTimestamp(),
-      createdAtMs:input.createdAtMs,
-      addedAt:new Date(input.createdAtMs).toISOString(),
-      updatedAt:serverTimestamp(),
-      updatedAtMs:input.updatedAtMs,
-      lastUpdated:new Date(input.updatedAtMs).toISOString(),
-      lastChapterUpdatedAt:input.updatedAtMs,
-      deleted:false,
-      deletedByAdmin:false,
-      hiddenByAdmin:false,
-      adminHidden:false,
-      group:'latest',
-      views:0,
-      likes:0,
-      bookmarks:0,
-      rating:0,
-      bg:'linear-gradient(145deg,#eef7f4 0%,#b8dcd5 48%,#f5eadb 100%)',
-      text:'#31534f'
-    };
-  }
-  async function saveStoryDocuments(db, story){
-    var latest = {
-      storyId:story.storyId,
-      id:story.storyId,
-      slug:story.slug,
-      title:story.title,
-      titleLower:story.titleLower,
-      author:story.author,
-      coverUrl:story.coverUrl,
-      cover:story.coverUrl,
-      latestChapterId:story.latestChapterId,
-      latestChapterTitle:story.latestChapterTitle,
-      latestChapterNumber:story.latestChapterNumber,
-      chapterCount:story.chapterCount,
-      updatedAt:serverTimestamp(),
-      updatedAtMs:story.updatedAtMs,
-      deleted:false
-    };
-    var searchText = [story.title, story.author, story.category, story.intro].join(' ').toLowerCase();
-    await commitOps(db, [
-      {ref:db.collection(STORY_COLLECTION).doc(story.storyId), data:story, options:{merge:true}},
-      {ref:db.collection(SEARCH_INDEX_COLLECTION).doc(story.storyId), data:Object.assign({}, latest, {authorLower:story.authorLower, categories:story.categories, category:story.category, searchText:searchText, sharedPublic:true}), options:{merge:true}},
-      {ref:db.collection(LATEST_UPDATES_COLLECTION).doc(story.storyId), data:latest, options:{merge:true}}
-    ]);
-  }
-  function updateRuntime(story){
-    try{
-      var arr = Array.isArray(window.MOC_STORY_ADMIN_DATA) ? window.MOC_STORY_ADMIN_DATA : (Array.isArray(window.stories) ? window.stories : []);
-      var id = story.storyId || story.id;
-      var index = arr.findIndex(function(item){ return trim(item && (item.id || item.storyId)) === id; });
-      if(index >= 0) arr[index] = story;
-      else arr.unshift(story);
-      window.stories = arr;
-      window.MOC_STORY_ADMIN_DATA = arr;
-    }catch(error){}
-    try{ if(window.TDNStoryFlow && typeof window.TDNStoryFlow.loadStories === 'function') window.TDNStoryFlow.loadStories(true); }catch(error){}
-    try{ if(typeof window.refreshHomeSections === 'function') window.refreshHomeSections(); }catch(error){}
-    try{ if(typeof window.initHeroSlider === 'function') window.initHeroSlider(); }catch(error){}
-    try{ if(window.MocTruyenAdmin && typeof window.MocTruyenAdmin.refresh === 'function') window.MocTruyenAdmin.refresh(); }catch(error){}
-  }
-  async function publish(){
-    if(publishing) return;
-    publishing = true;
-    var db = getDb();
-    var titleInput = $('adminStoryTitleInput');
-    var title = trim(titleInput && titleInput.value);
-    if(!db){ publishing = false; notify('Chưa kết nối được Firestore. Kiểm tra Firebase config hoặc Rules.'); return; }
-    if(!title){ publishing = false; notify('Bạn cần nhập tên truyện.'); titleInput && titleInput.focus(); return; }
-    var files = getAllSelectedTxtFiles();
-    if(!files.length){ publishing = false; notify('Bạn cần chọn file TXT chương.'); return; }
-    var author = trim($('adminStoryAuthorInput') && $('adminStoryAuthorInput').value) || 'Đang cập nhật';
-    var status = trim($('adminStoryStatusInput') && $('adminStoryStatusInput').value) || 'Đang ra';
-    var categories = splitCategories($('adminStoryGenreInput') && $('adminStoryGenreInput').value);
-    var intro = trim($('adminStorySummaryInput') && $('adminStorySummaryInput').value);
-    var coverUrl = normalizeCoverUrl($('adminStoryCoverInput') && $('adminStoryCoverInput').value);
-    var titleEntries = await readTitleEntries();
-    var slug = slugify(title);
-    var storyId = slug + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
-    var nowMs = Date.now();
-    setButton(true, 'Đang đăng truyện...');
-    setNotice('Đang chuẩn bị đăng truyện lên Firestore...');
-    try{
-      var chapters = [];
-      for(var i=0;i<files.length;i+=1){
-        var number = i + 1;
-        var file = files[i];
-        var chapterName = trim(titleEntries[i] && titleEntries[i].name) || titleFromFile(file, number) || ('Chương ' + number);
-        setButton(true, 'Đang lưu ' + number + '/' + files.length);
-        setNotice('Đang lưu chương ' + number + '/' + files.length + ': ' + chapterName);
-        chapters.push(await uploadChapter(db, storyId, makeChapterId(number), file, {number:number, title:chapterName, sourceFileName:file.webkitRelativePath || file.name || ''}));
-      }
-      var story = buildStory({storyId:storyId, slug:slug, title:title, author:author, status:status, categories:categories, intro:intro, coverUrl:coverUrl, chapters:chapters, createdAtMs:nowMs, updatedAtMs:Date.now(), storyShardId:getActiveStoryShardId()});
-      setNotice('Đang lưu thông tin truyện...');
-      await saveStoryDocuments(db, story);
-      updateRuntime(story);
-      var form = $('adminLocalStoryForm');
-      if(form) form.reset();
-      var list = $('adminStoryTxtList');
-      if(list) list.innerHTML = '';
-      var count = $('adminStoryTxtCount');
-      if(count) count.textContent = 'Chọn TXT chương';
-      var hint = $('adminStoryTxtHint');
-      if(hint) hint.textContent = '';
-      setNotice('Đăng truyện thành công. Dữ liệu đã lưu lên Firebase.');
-      notify('Truyện “' + title + '” đã đăng thành công (' + chapters.length + ' chương).', true);
-    }catch(error){
-      console.error('Lỗi đăng truyện trực tiếp:', error);
-      setNotice('Đăng truyện thất bại: ' + (error && error.message ? error.message : 'kiểm tra Rules/Firebase.'));
-      notify('Không đăng được truyện: ' + (error && error.message ? error.message : 'kiểm tra Rules/Firebase.'));
-    }finally{
-      publishing = false;
-      setButton(false, 'Đăng truyện');
-    }
-  }
-  function bind(){
-    document.addEventListener('click', function(event){
-      var btn = event.target && event.target.closest ? event.target.closest('#adminSaveLocalStoryBtn') : null;
-      if(!btn) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      publish();
-    }, true);
-  }
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind, {once:true});
-  else bind();
-  window.tdnDirectPublishStoryToFirebase = publish;
-})();
-</script>
-
-
 <script id="tdn-admin-hide-firestore-sync">
 (function(){
   function getDb(){
@@ -45708,12 +45094,34 @@ body.reader-dark #adminPage #adminStoryTxtList .admin-add-file-badge{
     }catch(error){}
     return getDb();
   }
+  async function resolveDbForStoryHide(storyId, story){
+    var id = String(storyId || '').trim();
+    try{
+      if(window.TDNStoryFlow && typeof window.TDNStoryFlow.resolveStoryTarget === 'function'){
+        var target = await window.TDNStoryFlow.resolveStoryTarget(id, story || null);
+        if(target && target.db) return target.db;
+      }
+    }catch(error){}
+    var db = getDbForStoryHide(story || {storyId:id});
+    if(db && story) return db;
+    try{
+      if(window.TDNFirebaseFlows && typeof window.TDNFirebaseFlows.getStoryReadDbs === 'function'){
+        var targets = window.TDNFirebaseFlows.getStoryReadDbs() || [];
+        for(var i=0;i<targets.length;i+=1){
+          var targetDb = targets[i] && targets[i].db;
+          if(!targetDb) continue;
+          try{ var snap = await targetDb.collection('stories').doc(id).get(); if(snap && snap.exists) return targetDb; }catch(inner){}
+        }
+      }
+    }catch(error){}
+    return db;
+  }
   window.tdnSetStoryHiddenInFirestore = async function(storyId, hidden){
     var id = String(storyId || '').trim();
     if(!id) return false;
     var story = findRuntimeStoryForFirebaseHide(id);
-    var db = getDbForStoryHide(story || {storyId:id});
-    if(!db) throw new Error('Chưa kết nối Firestore');
+    var db = await resolveDbForStoryHide(id, story);
+    if(!db) throw new Error('Chưa kết nối Firestore gốc của truyện');
     var active = !!hidden;
     var data = {
       adminHidden:active,
@@ -47102,88 +46510,8 @@ body.reader-dark #homePage .home-reading-now-remove-btn{
 </style>
 
 
-<style id="tdn-daily-recommend-grid-final">
-#homePage .tdn-daily-recommend-section > #recommendedTrack.story-track,
-#homePage .tdn-daily-recommend-section > #recommendedTrack.tdn-recommend-grid{
-  --tdn-recommend-cols:5;
-  --tdn-recommend-gap-x:10px;
-  --tdn-recommend-gap-y:16px;
-  display:grid !important;
-  grid-template-columns:repeat(var(--tdn-recommend-cols), minmax(0,1fr)) !important;
-  grid-auto-flow:row !important;
-  grid-auto-columns:unset !important;
-  gap:var(--tdn-recommend-gap-y) var(--tdn-recommend-gap-x) !important;
-  margin-top:18px !important;
-  width:100% !important;
-  min-width:0 !important;
-  overflow-x:hidden !important;
-  overflow-y:visible !important;
-  scroll-snap-type:none !important;
-  scrollbar-width:none !important;
-  -ms-overflow-style:none !important;
-  padding:0 !important;
-}
-#homePage .tdn-daily-recommend-section > #recommendedTrack.story-track::-webkit-scrollbar,
-#homePage .tdn-daily-recommend-section > #recommendedTrack.tdn-recommend-grid::-webkit-scrollbar{
-  display:none !important;
-  width:0 !important;
-  height:0 !important;
-}
-#homePage .tdn-daily-recommend-section > #recommendedTrack.story-track > .story-card,
-#homePage .tdn-daily-recommend-section > #recommendedTrack.tdn-recommend-grid > .story-card,
-#homePage .tdn-daily-recommend-section > #recommendedTrack.story-track > .story-card:nth-child(n),
-#homePage .tdn-daily-recommend-section > #recommendedTrack.tdn-recommend-grid > .story-card:nth-child(n){
-  display:flex !important;
-  width:100% !important;
-  min-width:0 !important;
-  overflow:visible !important;
-  scroll-snap-align:unset !important;
-}
-#homePage .tdn-daily-recommend-section > #recommendedTrack.story-track > .story-card:nth-child(n+21),
-#homePage .tdn-daily-recommend-section > #recommendedTrack.tdn-recommend-grid > .story-card:nth-child(n+21){
-  display:none !important;
-}
-@media (max-width:860px){
-  #homePage .tdn-daily-recommend-section > #recommendedTrack.story-track,
-  #homePage .tdn-daily-recommend-section > #recommendedTrack.tdn-recommend-grid{
-    --tdn-recommend-cols:4;
-    --tdn-recommend-gap-x:10px;
-    --tdn-recommend-gap-y:16px;
-  }
-  #homePage .tdn-daily-recommend-section > #recommendedTrack.story-track > .story-card:nth-child(n),
-  #homePage .tdn-daily-recommend-section > #recommendedTrack.tdn-recommend-grid > .story-card:nth-child(n){
-    display:flex !important;
-  }
-  #homePage .tdn-daily-recommend-section > #recommendedTrack.story-track > .story-card:nth-child(n+17),
-  #homePage .tdn-daily-recommend-section > #recommendedTrack.tdn-recommend-grid > .story-card:nth-child(n+17){
-    display:none !important;
-  }
-}
-@media (max-width:560px){
-  #homePage .tdn-daily-recommend-section > #recommendedTrack.story-track,
-  #homePage .tdn-daily-recommend-section > #recommendedTrack.tdn-recommend-grid{
-    --tdn-recommend-cols:3;
-    --tdn-recommend-gap-x:12px;
-    --tdn-recommend-gap-y:16px;
-    margin-top:16px !important;
-  }
-  #homePage .tdn-daily-recommend-section > #recommendedTrack.story-track > .story-card:nth-child(n),
-  #homePage .tdn-daily-recommend-section > #recommendedTrack.tdn-recommend-grid > .story-card:nth-child(n){
-    display:flex !important;
-  }
-  #homePage .tdn-daily-recommend-section > #recommendedTrack.story-track > .story-card:nth-child(n+13),
-  #homePage .tdn-daily-recommend-section > #recommendedTrack.tdn-recommend-grid > .story-card:nth-child(n+13){
-    display:none !important;
-  }
-}
-@media (max-width:360px){
-  #homePage .tdn-daily-recommend-section > #recommendedTrack.story-track,
-  #homePage .tdn-daily-recommend-section > #recommendedTrack.tdn-recommend-grid{
-    --tdn-recommend-gap-x:9px;
-    --tdn-recommend-gap-y:14px;
-  }
-}
-</style>
+
+
 
 
 <style id="tdn-logo-clean-no-shadow-fix">
@@ -48551,5 +47879,84 @@ body.reader-warm #tdnGlobalMiniListenPlayer button{ color:inherit !important; }
 </script>
 <!-- /TDN PATCH: global floating mini listen player v13 -->
 
+
+
+
+
+
+
+
+<!-- TDN PATCH: recommended home grid matches other story sections v6 -->
+<style id="tdn-recommended-home-grid-match-story-sections-v6">
+/* Đề Cử Hôm Nay dùng đúng kích thước card như Truyện Hot / Mới cập nhật / Hoàn Thành.
+   Màn vừa/lớn: 5 truyện mỗi hàng, tối đa 4 hàng = 20 truyện.
+   Màn nhỏ: 3 truyện mỗi hàng, tối đa 4 hàng = 12 truyện. */
+html body #homePage section#recommendedSection.tdn-daily-recommend-section > div#recommendedTrack.story-track,
+html body #homePage section#recommendedSection.tdn-daily-recommend-section > div#recommendedTrack.tdn-recommend-grid{
+  --home-story-cols:5 !important;
+  display:grid !important;
+  grid-template-columns:repeat(var(--home-story-cols), minmax(0,1fr)) !important;
+  grid-auto-flow:row !important;
+  grid-auto-columns:unset !important;
+  gap:var(--home-story-gap-y,16px) var(--home-story-gap-x,10px) !important;
+  width:100% !important;
+  min-width:0 !important;
+  max-width:100% !important;
+  overflow-x:hidden !important;
+  overflow-y:visible !important;
+  scroll-snap-type:none !important;
+  scrollbar-width:none !important;
+  -ms-overflow-style:none !important;
+  padding:0 !important;
+}
+html body #homePage section#recommendedSection.tdn-daily-recommend-section > div#recommendedTrack.story-track::-webkit-scrollbar,
+html body #homePage section#recommendedSection.tdn-daily-recommend-section > div#recommendedTrack.tdn-recommend-grid::-webkit-scrollbar{
+  display:none !important;
+  width:0 !important;
+  height:0 !important;
+}
+html body #homePage section#recommendedSection.tdn-daily-recommend-section > div#recommendedTrack.story-track > .story-card,
+html body #homePage section#recommendedSection.tdn-daily-recommend-section > div#recommendedTrack.tdn-recommend-grid > .story-card{
+  width:100% !important;
+  min-width:0 !important;
+  max-width:100% !important;
+  scroll-snap-align:unset !important;
+  overflow:visible !important;
+}
+html body #homePage section#recommendedSection.tdn-daily-recommend-section > div#recommendedTrack.story-track > .story-card:nth-child(n),
+html body #homePage section#recommendedSection.tdn-daily-recommend-section > div#recommendedTrack.tdn-recommend-grid > .story-card:nth-child(n){
+  display:flex !important;
+}
+html body #homePage section#recommendedSection.tdn-daily-recommend-section > div#recommendedTrack.story-track > .story-card:nth-child(n+21),
+html body #homePage section#recommendedSection.tdn-daily-recommend-section > div#recommendedTrack.tdn-recommend-grid > .story-card:nth-child(n+21){
+  display:none !important;
+}
+@media (max-width:560px){
+  html body #homePage section#recommendedSection.tdn-daily-recommend-section > div#recommendedTrack.story-track,
+  html body #homePage section#recommendedSection.tdn-daily-recommend-section > div#recommendedTrack.tdn-recommend-grid{
+    --home-story-cols:3 !important;
+    --home-story-gap-x:12px !important;
+    --home-story-gap-y:16px !important;
+    grid-template-columns:repeat(3, minmax(0,1fr)) !important;
+  }
+  html body #homePage section#recommendedSection.tdn-daily-recommend-section > div#recommendedTrack.story-track > .story-card:nth-child(n+13),
+  html body #homePage section#recommendedSection.tdn-daily-recommend-section > div#recommendedTrack.tdn-recommend-grid > .story-card:nth-child(n+13){
+    display:none !important;
+  }
+}
+@media (max-width:360px){
+  html body #homePage section#recommendedSection.tdn-daily-recommend-section > div#recommendedTrack.story-track,
+  html body #homePage section#recommendedSection.tdn-daily-recommend-section > div#recommendedTrack.tdn-recommend-grid{
+    --home-story-gap-x:9px !important;
+    --home-story-gap-y:14px !important;
+  }
+}
+</style>
+<!-- /TDN PATCH: recommended home grid matches other story sections v6 -->
+
+<script id="tdn-admin-clean-firebase-flow-note">
+window.__TDN_ADMIN_FIREBASE_FLOW_MODE = 'clean_single_story_flow_v5 code_pruned_v8';
+window.__TDN_ADMIN_FIREBASE_FLOW_NOTE = 'Dang truyen moi dung luong truyen dang chon; sua/an/xoa luon dung storyShardId cua truyen; direct publish cu da duoc go.';
+</script>
 </body>
 </html>
