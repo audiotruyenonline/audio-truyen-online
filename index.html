@@ -9784,11 +9784,9 @@ margin-right:0 !important;
             shape.viewsWeek = Math.max(readMainCounterNumber(shape.viewsWeek, 0), minWeek);
             shape.viewsMonth = Math.max(readMainCounterNumber(shape.viewsMonth, 0), minMonth);
             if(String(shape.source || '').indexOf('firebase') === 0 && readMainCounterNumber(shape.viewsTotal, 0) >= minTotal){
-              story.__tdnOptimisticViewUntil = 0;
-              story.__tdnOptimisticMinViewsTotal = 0;
-              story.__tdnOptimisticMinViewsDay = 0;
-              story.__tdnOptimisticMinViewsWeek = 0;
-              story.__tdnOptimisticMinViewsMonth = 0;
+              // Đã thấy Firebase bắt kịp số mới, nhưng không xóa guard ngay.
+              // Một snapshot cũ có thể vẫn tới sau đó và kéo 19 tụt về 18.
+              story.__tdnOptimisticViewConfirmedAt = Date.now();
             }
           }
         }catch(error){}
@@ -10016,7 +10014,7 @@ margin-right:0 !important;
           source:'optimistic_storyStats',
           updatedAt:Date.now()
         };
-        story.__tdnOptimisticViewUntil = Date.now() + 15000;
+        story.__tdnOptimisticViewUntil = Date.now() + (10 * 60 * 1000);
         story.__tdnOptimisticMinViewsTotal = next.viewsTotal;
         story.__tdnOptimisticMinViewsDay = next.viewsDay;
         story.__tdnOptimisticMinViewsWeek = next.viewsWeek;
@@ -10048,15 +10046,17 @@ margin-right:0 !important;
               var old = snap && snap.exists ? (snap.data() || {}) : {};
               var oldShape = normalizeStoryStatsShape(old, id, true);
               var next = {
+                storyId:id,
                 viewsTotal:readMainCounterNumber(oldShape.viewsTotal, 0) + 1,
                 viewsDay:(safeText(old.dayKey) === keys.dayKey ? readMainCounterNumber(old.viewsDay, 0) : 0) + 1,
                 viewsWeek:(safeText(old.weekKey) === keys.weekKey ? readMainCounterNumber(old.viewsWeek, 0) : 0) + 1,
                 viewsMonth:(safeText(old.monthKey) === keys.monthKey ? readMainCounterNumber(old.viewsMonth, 0) : 0) + 1,
                 dayKey:keys.dayKey,
                 weekKey:keys.weekKey,
-                monthKey:keys.monthKey
+                monthKey:keys.monthKey,
+                updatedAt:serverTimestamp()
               };
-              tx.set(ref, next);
+              tx.set(ref, next, {merge:true});
               return next;
             });
           }).then(applyAfterWrite).catch(function(error){
@@ -10065,15 +10065,17 @@ margin-right:0 !important;
               var old = doc && doc.exists ? (doc.data() || {}) : {};
               var oldShape = normalizeStoryStatsShape(old, id, true);
               var next = {
+                storyId:id,
                 viewsTotal:readMainCounterNumber(oldShape.viewsTotal, 0) + 1,
                 viewsDay:(safeText(old.dayKey) === keys.dayKey ? readMainCounterNumber(old.viewsDay, 0) : 0) + 1,
                 viewsWeek:(safeText(old.weekKey) === keys.weekKey ? readMainCounterNumber(old.viewsWeek, 0) : 0) + 1,
                 viewsMonth:(safeText(old.monthKey) === keys.monthKey ? readMainCounterNumber(old.viewsMonth, 0) : 0) + 1,
                 dayKey:keys.dayKey,
                 weekKey:keys.weekKey,
-                monthKey:keys.monthKey
+                monthKey:keys.monthKey,
+                updatedAt:serverTimestamp()
               };
-              return ref.set(next).then(function(){ return next; });
+              return ref.set(next, {merge:true}).then(function(){ return next; });
             }).then(applyAfterWrite).catch(function(inner){
               console.warn('Không ghi được storyStats lượt xem:', inner);
               return false;
@@ -10697,6 +10699,33 @@ svg *{
 body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:rgba(127,29,29,.24)!important;color:#fca5a5!important;border-color:rgba(248,113,113,.22)!important;}
 @media (max-width:760px){#adminEditStorySpace .admin-edit-chapter-item{grid-template-columns:48px minmax(0,1fr) 34px;gap:8px;}#adminEditStorySpace .admin-edit-chapter-delete-btn{width:42px;height:42px;border-radius:14px;}}
 </style>
+
+
+
+
+<style id="tdn-modern-mini-player-style">
+/* Dọn player cũ: #chapterAudioPlayer chỉ còn là engine nghe ẩn, không còn hiện giao diện riêng */
+#homeListeningBar{display:none !important;}
+#chapterAudioPlayer,
+body #chapterAudioPlayer,
+body.chapter-player-active #chapterAudioPlayer,
+body.chapter-player-active #chapterAudioPlayer:not([hidden]),
+body.chapter-player-active #chapterAudioPlayer.tdn-modern-mini-player,
+body.chapter-player-active #chapterAudioPlayer.tdn-modern-mini-player:not([hidden]){
+  display:none !important;
+  visibility:hidden !important;
+  opacity:0 !important;
+  pointer-events:none !important;
+}
+body.chapter-player-active .reader-shell.reading-mode .reader-body,
+body.chapter-player-active .chapter-reader .reader-body,
+body.chapter-player-active.chapter-player-collapsed .reader-shell.reading-mode .reader-body,
+body.chapter-player-active.chapter-player-collapsed .chapter-reader .reader-body{
+  padding-bottom:58px !important;
+}
+</style>
+
+
 
 </head>
 <body>
@@ -11708,6 +11737,97 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
         </button>
       </nav>
 
+
+<style id="tdn-reader-settings-audio-speed-style">
+.reader-setting-row--audio-speed{
+  align-items:center;
+}
+.reader-audio-speed-group{
+  width:min(100%, 370px);
+  margin-left:auto;
+}
+.reader-audio-speed-slider-row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.reader-audio-speed-range{
+  flex:1 1 auto;
+  width:100%;
+  appearance:none;
+  -webkit-appearance:none;
+  height:6px;
+  border-radius:999px;
+  background:linear-gradient(90deg,#7bd76c 0%, #43b654 100%);
+  outline:none;
+  box-shadow:inset 0 0 0 1px rgba(17,24,39,.06);
+}
+.reader-audio-speed-range::-webkit-slider-thumb{
+  -webkit-appearance:none;
+  appearance:none;
+  width:22px;
+  height:22px;
+  border-radius:50%;
+  border:2px solid #fff;
+  background:#43b654;
+  box-shadow:0 6px 16px rgba(67,182,84,.28);
+}
+.reader-audio-speed-range::-moz-range-thumb{
+  width:22px;
+  height:22px;
+  border-radius:50%;
+  border:2px solid #fff;
+  background:#43b654;
+  box-shadow:0 6px 16px rgba(67,182,84,.28);
+}
+.reader-audio-speed-range::-moz-range-track{
+  height:6px;
+  border-radius:999px;
+  background:linear-gradient(90deg,#7bd76c 0%, #43b654 100%);
+}
+.reader-audio-speed-value{
+  flex:0 0 78px;
+  min-width:78px;
+  height:38px;
+  border-radius:14px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#fff;
+  color:#111827;
+  font:900 14px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  box-shadow:inset 0 0 0 1px rgba(17,24,39,.08), 0 6px 16px rgba(15,23,42,.04);
+}
+body.reader-dark .reader-audio-speed-value{
+  background:rgba(255,255,255,.08);
+  color:#f3f4f6;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);
+}
+@media(max-width:420px){
+  .reader-setting-row--audio-speed{
+    gap:10px;
+  }
+  .reader-audio-speed-slider-row{
+    gap:8px;
+  }
+  .reader-audio-speed-range::-webkit-slider-thumb{
+    width:20px;
+    height:20px;
+  }
+  .reader-audio-speed-range::-moz-range-thumb{
+    width:20px;
+    height:20px;
+  }
+  .reader-audio-speed-value{
+    flex-basis:70px;
+    min-width:70px;
+    height:36px;
+    border-radius:12px;
+    font-size:13px;
+  }
+}
+</style>
+
     <main class="chapter-reader tdn-reader-rebuilt" id="readerPage" hidden>
       <section class="reader-chapter-hero tdn-reader-head" aria-label="Thông tin chương đang đọc">
         <p class="reader-hero-story tdn-reader-title" id="readerHeroStoryTitle">TRUYỆN ĐỒNG NHÂN</p>
@@ -11749,62 +11869,29 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
         </div>
       </section>
 
-      <section class="chapter-audio-player" id="chapterAudioPlayer" aria-label="Trình phát chương">
-        <div class="chapter-player-top">
-          <div class="chapter-player-badge" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><path d="M4 13v-1a8 8 0 0 1 16 0v1"></path><path d="M4 13h3v6H5a1 1 0 0 1-1-1v-5Z"></path><path d="M20 13h-3v6h2a1 1 0 0 0 1-1v-5Z"></path></svg>
-          </div>
-          <div class="chapter-player-text">
-            <div class="chapter-player-title" id="chapterPlayerTitle">Chương 1</div>
-            <div class="chapter-player-status" id="chapterPlayerStatus">Chỉ nghe khi đang mở web, chưa nghe nền.</div>
-          </div>
-          <div class="chapter-speed-wrap" id="chapterSpeedWrap">
-            <button class="chapter-player-speed" type="button" id="chapterAudioSpeedBtn" aria-label="Chỉnh tốc độ phát" aria-expanded="false" aria-controls="chapterSpeedPanel"><span id="chapterAudioSpeedText">1x</span></button>
-            <div class="chapter-speed-panel" id="chapterSpeedPanel" hidden>
-              <div class="chapter-speed-head">
-                <span>Tốc độ nghe</span>
-                <strong id="chapterAudioSpeedValue">1x</strong>
-              </div>
-              <input class="chapter-speed-range" id="chapterAudioSpeedRange" type="range" min="1" max="5" value="1" step="0.1" aria-label="Chỉnh tốc độ từ 1x đến 5x" />
-              <div class="chapter-speed-marks" aria-hidden="true">
-                <span class="mark-start">1x</span>
-                <span class="mark-2x">2x</span>
-                <span class="mark-3x">3x</span>
-                <span class="mark-4x">4x</span>
-                <span class="mark-end">5x</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="chapter-player-progress-wrap">
-          <input class="chapter-player-progress" id="chapterAudioProgress" type="range" min="0" max="1000" value="0" step="1" aria-label="Tiến trình nghe chương" />
-          <div class="chapter-player-time">
-            <span id="chapterAudioCurrentTime">00:00</span>
-            <span id="chapterAudioDuration">00:00</span>
-          </div>
-        </div>
-        <div class="chapter-player-controls">
-          <button class="chapter-control-btn chapter-list-control-btn" type="button" id="chapterAudioListBtn" aria-label="Danh sách chương" title="Danh sách chương">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M8 6h12"></path><path d="M8 12h12"></path><path d="M8 18h12"></path>
-              <path d="M4 6h.01"></path><path d="M4 12h.01"></path><path d="M4 18h.01"></path>
-            </svg>
-          </button>
-          <button class="chapter-control-btn chapter-nav-slot-btn" type="button" id="chapterAudioBack15Btn" aria-label="Chương trước" title="Chương trước">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h2v14H6z"></path><path d="M19 6 10 12l9 6V6Z"></path></svg>
-          </button>
-          <button class="chapter-play-btn" type="button" id="chapterAudioPlayBtn" aria-label="Phát chương">
-            <svg class="play-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5-11-6.5Z"></path></svg>
-            <svg class="pause-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"></path></svg>
-          </button>
-          <button class="chapter-control-btn chapter-nav-slot-btn" type="button" id="chapterAudioForward15Btn" aria-label="Chương tiếp theo" title="Chương tiếp theo">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 5h2v14h-2z"></path><path d="M5 6l9 6-9 6V6Z"></path></svg>
-          </button>
-          <button class="chapter-control-btn chapter-settings-control-btn" type="button" id="chapterAudioSettingsBtn" aria-label="Cài đặt đọc" title="Cài đặt đọc">
-            <svg class="settings-solid-icon settings-gear-clean" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-              <path fill-rule="evenodd" d="M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 0 1-2.105.872l-.310-.17c-1.283-.698-2.686.705-1.987 1.987l.169.311c.446.82.023 1.841-.872 2.105l-.34.1c-1.4.413-1.4 2.397 0 2.81l.34.1a1.464 1.464 0 0 1 .872 2.105l-.17.31c-.698 1.283.705 2.686 1.987 1.987l.311-.169a1.464 1.464 0 0 1 2.105.872l.1.34c.413 1.4 2.397 1.4 2.81 0l.1-.34a1.464 1.464 0 0 1 2.105-.872l.31.17c1.283.698 2.686-.705 1.987-1.987l-.169-.311a1.464 1.464 0 0 1 .872-2.105l.34-.1c1.4-.413 1.4-2.397 0-2.81l-.34-.1a1.464 1.464 0 0 1-.872-2.105l.17-.31c.698-1.283-.705-2.686-1.987-1.987l-.311.169a1.464 1.464 0 0 1-2.105-.872l-.1-.34ZM8 10.94a2.94 2.94 0 1 0 0-5.88 2.94 2.94 0 0 0 0 5.88Z"></path>
-            </svg>
-          </button>
+      <section class="chapter-audio-player tdn-modern-mini-player" id="chapterAudioPlayer" aria-label="Trình phát mini" hidden>
+        <button class="chapter-mini-cover-btn" type="button" id="chapterMiniCoverBtn" aria-label="Mở truyện đang nghe" title="Mở truyện đang nghe">
+          <img class="chapter-mini-cover-img" id="chapterMiniCoverImg" alt="Ảnh bìa truyện đang nghe" loading="lazy" decoding="async" referrerpolicy="no-referrer" hidden>
+          <span class="chapter-mini-cover-fallback" id="chapterMiniCoverFallback" aria-hidden="true">TĐ</span>
+        </button>
+        <span class="chapter-mini-divider" aria-hidden="true"></span>
+        <button class="chapter-control-btn chapter-nav-slot-btn chapter-mini-prev" type="button" id="chapterAudioBack15Btn" aria-label="Chương trước" title="Chương trước">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 5h2v14H7z"></path><path d="M18 6 10 12l8 6V6Z"></path></svg>
+        </button>
+        <button class="chapter-play-btn chapter-mini-play" type="button" id="chapterAudioPlayBtn" aria-label="Phát chương" title="Phát / tạm dừng">
+          <svg class="play-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5.5v13l11-6.5-11-6.5Z"></path></svg>
+          <svg class="pause-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 5h4v14H7zM13 5h4v14h-4z"></path></svg>
+        </button>
+        <button class="chapter-control-btn chapter-nav-slot-btn chapter-mini-next" type="button" id="chapterAudioForward15Btn" aria-label="Chương tiếp theo" title="Chương tiếp theo">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 5h2v14h-2z"></path><path d="M6 6l8 6-8 6V6Z"></path></svg>
+        </button>
+        <span class="chapter-mini-divider chapter-mini-divider-right" aria-hidden="true"></span>
+        <button class="chapter-control-btn chapter-close-control-btn chapter-mini-close" type="button" id="chapterAudioCloseBtn" aria-label="Tắt nghe" title="Tắt nghe">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"></path><path d="M18 6 6 18"></path></svg>
+        </button>
+        <div class="chapter-mini-meta" aria-live="polite">
+          <span class="chapter-player-title" id="chapterPlayerTitle">Chương 1</span>
+          <span class="chapter-player-status" id="chapterPlayerStatus">Chưa phát</span>
         </div>
       </section>
 
@@ -11868,6 +11955,16 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
           <button type="button" class="reader-theme-chip" data-reader-theme="light" id="readerThemeLight">Sáng</button>
           <button type="button" class="reader-theme-chip reader-theme-chip--warm" data-reader-theme="warm" id="readerThemeWarm">Ấm</button>
           <button type="button" class="reader-theme-chip reader-theme-chip--dark" data-reader-theme="dark" id="readerThemeDark">Tối</button>
+        </div>
+      </div>
+
+      <div class="reader-setting-row reader-setting-row--audio-speed">
+        <b>Tốc độ nghe</b>
+        <div class="reader-audio-speed-group" aria-label="Chỉnh tốc độ phát audio">
+          <div class="reader-audio-speed-slider-row">
+            <input type="range" class="reader-audio-speed-range" id="readerAudioSpeedRange" min="0.75" max="2" step="0.05" value="1" aria-label="Thanh kéo tốc độ nghe">
+            <div class="reader-audio-speed-value" id="readerAudioSpeedCurrent">1x</div>
+          </div>
         </div>
       </div>
 
@@ -12783,6 +12880,8 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
     const readerSettingResetBtn = document.getElementById('readerSettingResetBtn');
     const readerThemeButtons = Array.from(document.querySelectorAll('[data-reader-theme]'));
     const readerAlignButtons = Array.from(document.querySelectorAll('[data-reader-align]'));
+    const readerAudioSpeedRange = document.getElementById('readerAudioSpeedRange');
+    const readerAudioSpeedCurrent = document.getElementById('readerAudioSpeedCurrent');
     const readerAlignCurrent = document.getElementById('readerAlignCurrent');
     const homeListeningBar = document.getElementById('homeListeningBar');
     const homeListeningInfoBtn = document.getElementById('homeListeningInfoBtn');
@@ -12806,6 +12905,7 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
     const chapterAudioSpeedRange = document.getElementById('chapterAudioSpeedRange');
     const chapterAudioListBtn = document.getElementById('chapterAudioListBtn');
     const chapterAudioSettingsBtn = document.getElementById('chapterAudioSettingsBtn');
+    const chapterAudioCloseBtn = document.getElementById('chapterAudioCloseBtn');
     const chapterAudioVoiceBtn = document.getElementById('chapterAudioVoiceBtn');
     const chapterAudioProgress = document.getElementById('chapterAudioProgress');
     const chapterAudioCurrentTime = document.getElementById('chapterAudioCurrentTime');
@@ -12815,7 +12915,14 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
     const chapterAudioPlayBtn = document.getElementById('chapterAudioPlayBtn');
     const chapterAudioForward15Btn = document.getElementById('chapterAudioForward15Btn');
     const chapterAudioNextBtn = document.getElementById('chapterAudioNextBtn');
+    const chapterMiniCoverBtn = document.getElementById('chapterMiniCoverBtn');
+    const chapterMiniCoverImg = document.getElementById('chapterMiniCoverImg');
+    const chapterMiniCoverFallback = document.getElementById('chapterMiniCoverFallback');
+    if(chapterAudioPlayer && chapterAudioPlayer.parentElement !== document.body){
+      try{ document.body.appendChild(chapterAudioPlayer); }catch(error){}
+    }
     const CHAPTER_AUDIO_OPEN_WEB_NOTICE = 'Chỉ nghe khi đang mở web, chưa nghe nền.';
+    try{ localStorage.setItem('tdn_chapter_audio_player_enabled', '1'); }catch(error){}
 
     const VIEW_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 tiếng mới tăng lại 1 lượt xem cùng 1 truyện
     const STORY_VIEW_COOLDOWN_STORAGE_KEY = 'tdn_story_view_cooldowns_v3';
@@ -12902,10 +13009,16 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
     let isChapterSpeechPaused = false;
 
     let chapterAudioRate = 1;
+    const TDN_AUDIO_RATE_KEY = 'tdn_chapter_audio_rate_v1';
+    try{
+      const savedRate = Number(localStorage.getItem(TDN_AUDIO_RATE_KEY));
+      if(Number.isFinite(savedRate) && savedRate > 0) chapterAudioRate = savedRate;
+    }catch(error){}
     let chapterAudioMuted = false;
     let chapterAudioCurrent = 0;
     let chapterAudioDurationValue = 0;
     let chapterAudioTimer = null;
+    let chapterAudioLastSnapshotAt = 0;
     let chapterAudioStartAt = 0;
     let chapterAudioStartOffset = 0;
     let chapterAudioStatus = 'Sẵn sàng phát';
@@ -13635,6 +13748,30 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
       return true;
     }
 
+    function clearStoryViewCooldown(storyId){
+      const id = normalizeStoryViewCooldownId(storyId);
+      const key = makeStoryViewCooldownKey(id);
+      if(!id || !key) return false;
+      try{
+        const runtimeMap = getStoryViewRuntimeCooldowns();
+        delete runtimeMap[key];
+        delete runtimeMap[id];
+      }catch(error){}
+      try{
+        const sessionMap = getJsonSessionStorageMap(STORY_VIEW_SESSION_COOLDOWN_STORAGE_KEY);
+        delete sessionMap[key];
+        delete sessionMap[id];
+        setJsonSessionStorageMap(STORY_VIEW_SESSION_COOLDOWN_STORAGE_KEY, sessionMap);
+      }catch(error){}
+      try{
+        const localMap = getJsonStorageMap(STORY_VIEW_COOLDOWN_STORAGE_KEY);
+        delete localMap[key];
+        delete localMap[id];
+        setJsonStorageMap(STORY_VIEW_COOLDOWN_STORAGE_KEY, localMap);
+      }catch(error){}
+      return true;
+    }
+
     function tryReserveStoryViewCooldown(storyId, now = Date.now()){
       const id = normalizeStoryViewCooldownId(storyId);
       if(!id || isStoryViewInCooldown(id, now)) return false;
@@ -13671,7 +13808,8 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
       let canRecord = false;
       try{ canRecord = !!(window.TDNFirebaseFlows && typeof window.TDNFirebaseFlows.recordView === 'function'); }catch(error){ canRecord = false; }
       if(!canRecord) return false;
-      if(!tryReserveStoryViewCooldown(storyId, now)) return false;
+      // Không ghi cooldown thật trước khi Firebase ghi thành công.
+      // Chỉ dùng STORY_VIEW_PENDING_KEYS để chặn bấm lặp trong lúc đang ghi.
 
       // Cộng nhanh ngay trên giao diện, Firebase ghi nền phía sau.
       // Snapshot cũ từ Firebase sẽ không được kéo số này tụt xuống trong vài giây đầu.
@@ -13688,21 +13826,14 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
         Promise.resolve(writePromise).then(function(ok){
           if(ok) markStoryViewCooldown(storyId, now);
           if(!ok){
-            try{
-              story.__tdnOptimisticViewUntil = 0;
-              if(window.TDNFirebaseFlows && typeof window.TDNFirebaseFlows.syncStoryCounterOnce === 'function'){
-                window.TDNFirebaseFlows.syncStoryCounterOnce(story).then(function(){ refreshStoryViewDisplays(story); });
-              }
-            }catch(error){}
+            try{ clearStoryViewCooldown(storyId); }catch(error){}
+            // Không sync lại Firebase ngay lúc lỗi, vì snapshot cũ sẽ kéo số vừa cộng nhanh tụt xuống.
+            // Lần mở sau sẽ thử ghi lại nếu chưa vào cooldown thành công.
           }
-          try{
-            if(window.TDNFirebaseFlows && typeof window.TDNFirebaseFlows.syncStoryCounterOnce === 'function'){
-              window.TDNFirebaseFlows.syncStoryCounterOnce(story).then(function(){ refreshStoryViewDisplays(story); });
-            }
-          }catch(error){}
           STORY_VIEW_PENDING_KEYS.delete(pendingKey);
         }, function(error){
           STORY_VIEW_PENDING_KEYS.delete(pendingKey);
+          try{ clearStoryViewCooldown(storyId); }catch(innerError){}
           console.warn('Không tăng được lượt xem Firebase:', error);
         });
         return true;
@@ -19030,25 +19161,13 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
     }
 
     function updateHomeListeningBar(){
-      if(!homeListeningBar) return;
-      const state = getListeningState();
-      const story = state ? stories.find(item => item.id === state.storyId) : null;
-      const hasManualListening = !!(state && (state.audioStarted || Number(state.current) > 0 || isChapterSpeaking));
-      const shouldShowBase = !!(story && homePage && !homePage.hidden && hasManualListening);
-      const shouldShow = shouldShowBase && !isHomeListeningDismissed;
-      homeListeningBar.hidden = !shouldShow;
-      homePage?.classList.toggle('has-home-player', shouldShow);
-      if(!shouldShowBase){
-        resetHomeListeningBarSwipe();
-        return;
-      }
-      const storyChapters = getStoryChapterNumbers(story);
-      const chapterNumber = Number(state.chapter) || getLastChapter(story.id) || storyChapters[0] || chapters[0];
-      homeListeningTitle.textContent = story.title;
-      homeListeningChapter.textContent = makeChapterLabel(chapterNumber, story);
-      const chapterIndex = storyChapters.indexOf(chapterNumber);
-      if(homeListeningPrevBtn) homeListeningPrevBtn.disabled = chapterIndex <= 0;
-      if(homeListeningNextBtn) homeListeningNextBtn.disabled = chapterIndex < 0 || chapterIndex >= storyChapters.length - 1;
+      // Đã thay thanh nghe cũ ở trang chủ bằng mini player nổi dùng chung toàn web.
+      if(homeListeningBar) homeListeningBar.hidden = true;
+      homePage?.classList.remove('has-home-player');
+      resetHomeListeningBarSwipe();
+      try{
+        if(typeof updateChapterAudioPlayer === 'function') updateChapterAudioPlayer();
+      }catch(error){}
     }
 
     function resetHomeListeningBarSwipe(){
@@ -19315,10 +19434,12 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
           if(isChapterSpeaking) pauseChapterSpeech();
         });
         navigator.mediaSession.setActionHandler('previoustrack', () => {
-          if(currentStory) changeChapterFromPlayer(-1);
+          if(currentStory && readerPage && !readerPage.hidden) changeChapterFromPlayer(-1);
+          else changeHomeListeningChapter(-1);
         });
         navigator.mediaSession.setActionHandler('nexttrack', () => {
-          if(currentStory) changeChapterFromPlayer(1);
+          if(currentStory && readerPage && !readerPage.hidden) changeChapterFromPlayer(1);
+          else changeHomeListeningChapter(1);
         });
       }catch(error){}
     }
@@ -19539,27 +19660,35 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
 
     function updateProgressFromClock(){
       if(!isChapterSpeaking || !chapterAudioDurationValue) return;
+      const now = Date.now();
       const data = getListeningResumeData();
       const story = data?.story || currentStory;
       const chapterNumber = data?.chapter || currentChapter;
-      const elapsed = (Date.now() - chapterAudioStartAt) / 1000;
+      const elapsed = (now - chapterAudioStartAt) / 1000;
       let nextCurrent = chapterAudioStartOffset + elapsed;
       const regions = getCurrentAudioRegions(story, chapterNumber);
       const activeRegion = regions[chapterAudioRegionIndex];
       if(activeRegion && story){
         const fullTextLength = getChapterSpeechText(story, chapterNumber).length || activeRegion.end;
         const regionEndSeconds = getChapterAudioSecondsFromIndex(activeRegion.end, fullTextLength);
-        nextCurrent = Math.min(regionEndSeconds - 0.04, chapterAudioRegionStartOffset + ((Date.now() - chapterAudioRegionSpeechStartedAt) / 1000));
+        nextCurrent = Math.min(regionEndSeconds - 0.04, chapterAudioRegionStartOffset + ((now - chapterAudioRegionSpeechStartedAt) / 1000));
       }
       chapterAudioCurrent = Math.max(0, Math.min(chapterAudioDurationValue, nextCurrent));
       if(isReaderShowingAudioChapter(story, chapterNumber)) updateChapterTextHighlightByTime(false);
-      saveListeningPlaybackSnapshot(story, chapterNumber);
+
+      /* Lưu tiến độ không cần chạy dày. Trước đây lưu mỗi 350ms dễ gây khựng trên Android. */
+      if(now - chapterAudioLastSnapshotAt >= 2500){
+        chapterAudioLastSnapshotAt = now;
+        saveListeningPlaybackSnapshot(story, chapterNumber);
+      }
+
       updateChapterAudioPlayer();
     }
 
     function startChapterAudioTimer(){
       clearInterval(chapterAudioTimer);
-      chapterAudioTimer = setInterval(updateProgressFromClock, 350);
+      chapterAudioLastSnapshotAt = 0;
+      chapterAudioTimer = setInterval(updateProgressFromClock, 700);
     }
 
     function stopChapterAudioTimer(){
@@ -19594,33 +19723,98 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
       if(chapterFloatNextBtn) chapterFloatNextBtn.disabled = isLast;
     }
 
+    function updateChapterMiniCover(story, chapterNumber){
+      if(!chapterMiniCoverBtn && !chapterMiniCoverImg && !chapterMiniCoverFallback) return;
+      const title = String(story?.title || 'Truyện đang nghe').trim();
+      const label = story ? makeChapterLabel(chapterNumber, story) : 'Chương đang nghe';
+      const coverUrl = (() => {
+        try{ if(typeof getStoryCoverImageUrl === 'function') return getStoryCoverImageUrl(story) || ''; }catch(error){}
+        try{ if(typeof normalizeExternalImageUrl === 'function') return normalizeExternalImageUrl(story?.cover || story?.coverUrl || story?.image || story?.imageUrl || story?.thumbnail || story?.poster || '') || ''; }catch(error){}
+        return String(story?.cover || story?.coverUrl || story?.image || story?.imageUrl || story?.thumbnail || story?.poster || '').trim();
+      })();
+      if(chapterMiniCoverBtn){
+        chapterMiniCoverBtn.title = `${title} • ${label}`;
+        chapterMiniCoverBtn.setAttribute('aria-label', `Mở ${title}, ${label}`);
+      }
+      if(chapterMiniCoverFallback){
+        const letters = title
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .map(word => word.charAt(0).toUpperCase())
+          .join('') || 'TĐ';
+        chapterMiniCoverFallback.textContent = letters;
+        chapterMiniCoverFallback.hidden = !!coverUrl;
+      }
+      if(chapterMiniCoverImg){
+        if(coverUrl){
+          if(chapterMiniCoverImg.src !== coverUrl) chapterMiniCoverImg.src = coverUrl;
+          chapterMiniCoverImg.alt = `Ảnh bìa ${title}`;
+          chapterMiniCoverImg.hidden = false;
+          chapterMiniCoverImg.onerror = () => {
+            chapterMiniCoverImg.hidden = true;
+            if(chapterMiniCoverFallback) chapterMiniCoverFallback.hidden = false;
+          };
+        }else{
+          chapterMiniCoverImg.removeAttribute('src');
+          chapterMiniCoverImg.hidden = true;
+        }
+      }
+    }
+
     function updateChapterAudioPlayer(){
       if(!chapterAudioPlayer) return;
+      try{
+        if(localStorage.getItem('tdn_global_mini_player_user_closed_v1') === '1' || localStorage.getItem('tdn_global_mini_player_user_closed_v1')){
+          chapterAudioPlayer.hidden = true;
+          chapterAudioPlayer.setAttribute('aria-hidden','true');
+        }
+      }catch(error){}
       const audioPlayerEnabled = (typeof isTdnChapterAudioPlayerEnabled !== 'function') || isTdnChapterAudioPlayerEnabled();
-      const isReaderVisible = !!(audioPlayerEnabled && readerPage && !readerPage.hidden && currentStory);
+      const listenData = getListeningResumeData();
+      const readerVisible = !!(readerPage && !readerPage.hidden && currentStory);
+      const storyForPlayer = readerVisible ? currentStory : (listenData?.story || currentStory);
+      const chapterForPlayer = Number(readerVisible ? currentChapter : (listenData?.chapter || currentChapter)) || chapters[0];
+      const hasManualListening = !!(
+        listenData &&
+        (listenData.audioStarted || Number(listenData.current) > 0 || isChapterSpeaking || isChapterSpeechPaused)
+      ) || isChapterSpeaking || isChapterSpeechPaused;
+      const shouldShowPlayer = !!(audioPlayerEnabled && storyForPlayer && hasManualListening);
+
       document.body.classList.toggle('tdn-audio-player-off', !audioPlayerEnabled);
-      chapterAudioPlayer.hidden = !isReaderVisible;
-      if(!isReaderVisible){
+      document.body.classList.toggle('chapter-player-active', shouldShowPlayer);
+      chapterAudioPlayer.hidden = !shouldShowPlayer;
+      chapterAudioPlayer.setAttribute('aria-hidden', shouldShowPlayer ? 'false' : 'true');
+
+      if(!shouldShowPlayer){
         updateCollapsedChapterFloatNav();
         return;
       }
 
       applyChapterAudioCollapsedState({animateReveal:false});
-      chapterAudioDurationValue = chapterAudioDurationValue || getChapterAudioDuration();
-      const label = makeChapterLabel(currentChapter);
-      // Dùng danh sách chương thật của truyện hiện tại để nút chuyển chương hoạt động đúng theo dữ liệu đã lưu.
-      const playerChapters = currentStory ? getStoryChapterNumbers(currentStory) : chapters;
-      const index = playerChapters.indexOf(Number(currentChapter));
+      if(listenData && !readerVisible){
+        chapterAudioCurrent = Math.max(0, Number(chapterAudioCurrent) || Number(listenData.current) || 0);
+        chapterAudioDurationValue = Math.max(0, Number(chapterAudioDurationValue) || Number(listenData.duration) || getChapterAudioDuration(storyForPlayer, chapterForPlayer));
+      }else{
+        chapterAudioDurationValue = chapterAudioDurationValue || getChapterAudioDuration(storyForPlayer, chapterForPlayer);
+      }
+
+      const label = makeChapterLabel(chapterForPlayer, storyForPlayer);
+      updateChapterMiniCover(storyForPlayer, chapterForPlayer);
+      const playerChapters = storyForPlayer ? getStoryChapterNumbers(storyForPlayer) : chapters;
+      const index = playerChapters.indexOf(Number(chapterForPlayer));
       const isFirstPlayerChapter = index <= 0;
       const isLastPlayerChapter = index < 0 || index >= playerChapters.length - 1;
       chapterAudioPlayer.classList.toggle('is-playing', isChapterSpeaking);
+      chapterAudioPlayer.classList.toggle('is-paused', !isChapterSpeaking && hasManualListening);
       if(chapterPlayerTitle){
         chapterPlayerTitle.textContent = label;
         chapterPlayerTitle.title = label;
       }
       if(chapterPlayerStatus){
-        chapterPlayerStatus.textContent = CHAPTER_AUDIO_OPEN_WEB_NOTICE;
-        chapterPlayerStatus.title = CHAPTER_AUDIO_OPEN_WEB_NOTICE;
+        const storyTitle = storyForPlayer?.title ? `${storyForPlayer.title} • ${label}` : CHAPTER_AUDIO_OPEN_WEB_NOTICE;
+        chapterPlayerStatus.textContent = isChapterSpeaking ? 'Đang nghe' : 'Đã tạm dừng';
+        chapterPlayerStatus.title = storyTitle;
       }
       updateChapterSpeedUi();
       if(chapterAudioCurrentTime) chapterAudioCurrentTime.textContent = formatAudioTime(chapterAudioCurrent);
@@ -19658,6 +19852,10 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
         chapterAudioNextBtn.disabled = isLastPlayerChapter;
         chapterAudioNextBtn.setAttribute('aria-label', 'Chương tiếp theo');
         chapterAudioNextBtn.title = 'Chương tiếp theo';
+      }
+      if(chapterAudioCloseBtn){
+        chapterAudioCloseBtn.setAttribute('aria-label', 'Tắt nghe');
+        chapterAudioCloseBtn.title = 'Tắt nghe';
       }
       updateCollapsedChapterFloatNav();
       if(chapterAudioVoiceBtn){
@@ -19736,6 +19934,31 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
       }
       setSpeakingState(false);
     }
+
+    function closeListeningMiniPlayer(){
+      try{ cancelChapterSpeech(); }catch(error){}
+      try{ localStorage.removeItem(LISTENING_STATE_KEY); }catch(error){}
+      try{ localStorage.removeItem('truyenDichNgay.chapterAudioCollapsed'); }catch(error){}
+      chapterAudioCurrent = 0;
+      chapterAudioStartOffset = 0;
+      chapterAudioDurationValue = 0;
+      chapterAudioRegionIndex = 0;
+      chapterAudioLastHighlightIndex = -1;
+      chapterAudioLastScrolledRegionIndex = -1;
+      chapterAudioPausedResume = null;
+      chapterAudioResumeTextIndex = null;
+      chapterAudioHomeOpenHandoff = null;
+      isChapterSpeechPaused = false;
+      if(chapterAudioPlayer){
+        chapterAudioPlayer.hidden = true;
+        chapterAudioPlayer.setAttribute('aria-hidden', 'true');
+        chapterAudioPlayer.classList.remove('is-playing', 'is-paused', 'player-collapsed', 'player-reveal-prep');
+      }
+      document.body.classList.remove('chapter-player-active', 'chapter-player-collapsed', 'tdn-player-manual-open', 'tdn-has-manual-listening');
+      updateHomeListeningBar();
+      updateChapterAudioPlayer();
+    }
+
 
     function getSpeechStartIndex(text, offsetSeconds, durationSeconds){
       if(!text || !durationSeconds) return 0;
@@ -19879,7 +20102,10 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
     }
 
     function toggleChapterAudioPlayback(){
-      if(!currentStory) return;
+      if(!currentStory || !readerPage || readerPage.hidden){
+        toggleHomeListeningPlayback();
+        return;
+      }
       startChapterBackgroundAudioSupport();
       requestChapterScreenWakeLock();
       if(isChapterSpeaking){
@@ -19910,7 +20136,10 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
     }
 
     function changeChapterFromPlayer(step){
-      if(!currentStory) return;
+      if(!readerPage || readerPage.hidden || !currentStory){
+        changeHomeListeningChapter(step);
+        return;
+      }
       const normalizedStep = Number(step) < 0 ? -1 : 1;
 
       // Khi bấm liên tục, gom lần bấm vào frame kế tiếp để tránh render / cancel speech chồng nhau.
@@ -20027,6 +20256,7 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
       const oldDuration = chapterAudioDurationValue || getChapterAudioDuration();
       const ratio = oldDuration ? chapterAudioCurrent / oldDuration : 0;
       chapterAudioRate = safeRate;
+      try{ localStorage.setItem(TDN_AUDIO_RATE_KEY, String(safeRate)); }catch(error){}
       chapterAudioDurationValue = getChapterAudioDuration();
       chapterAudioCurrent = Math.max(0, Math.min(chapterAudioDurationValue, ratio * chapterAudioDurationValue));
       chapterAudioStartOffset = chapterAudioCurrent;
@@ -20048,8 +20278,8 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
       }
     }
 
-    function getNextAutoAudioChapter(chapterNumber){
-      const storyChapters = getStoryChapterNumbers(currentStory);
+    function getNextAutoAudioChapter(chapterNumber, storyArg = currentStory){
+      const storyChapters = getStoryChapterNumbers(storyArg);
       const index = storyChapters.indexOf(Number(chapterNumber));
       if(index < 0 || index >= storyChapters.length - 1) return null;
       return storyChapters[index + 1];
@@ -20070,7 +20300,7 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
 
     function autoAdvanceAudioAfterChapterEnd(story, chapterNumber, fullTextLength){
       if(!story) return false;
-      const nextChapter = getNextAutoAudioChapter(chapterNumber);
+      const nextChapter = getNextAutoAudioChapter(chapterNumber, story);
       markChapterAudioFinished(story, chapterNumber, fullTextLength);
 
       if(!nextChapter){
@@ -20321,6 +20551,7 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
       chapterAudioRegionIndex = 0;
       setListeningState(data.story.id, nextChapter, {current:0, duration:getChapterAudioDuration(data.story, nextChapter), regionIndex:0, audioStarted:wasSpeaking || !!data.audioStarted});
       updateHomeListeningBar();
+      updateChapterAudioPlayer();
       if(readerPage && !readerPage.hidden && currentStory && currentStory.id === data.story.id){
         currentChapter = nextChapter;
         lockForceTop(900);
@@ -20382,6 +20613,13 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
         button.classList.toggle('is-active', active);
         button.setAttribute('aria-pressed', active ? 'true' : 'false');
       });
+
+      if(readerAudioSpeedRange){
+        readerAudioSpeedRange.value = String(Math.max(0.75, Math.min(2, Number(chapterAudioRate) || 1)));
+      }
+      if(readerAudioSpeedCurrent){
+        readerAudioSpeedCurrent.textContent = formatChapterAudioRate(chapterAudioRate);
+      }
       if(readerAlignCurrent){
         const alignTextMap = {justify:'Căn đều', left:'Căn trái', center:'Căn giữa', right:'Căn phải'};
         readerAlignCurrent.textContent = `Đang chọn: ${alignTextMap[readerTextAlign] || 'Căn đều'}`;
@@ -23457,12 +23695,14 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
     prevChapterBtn.addEventListener('click', () => changeChapter(-1));
     nextChapterBtn.addEventListener('click', () => changeChapter(1));
     readerListenBtn?.addEventListener('click', () => {
+      try{ localStorage.removeItem('tdn_global_mini_player_user_closed_v1'); }catch(error){}
       startChapterBackgroundAudioSupport();
       requestChapterScreenWakeLock();
       toggleChapterAudioPlayback();
     });
 
 
+    chapterMiniCoverBtn?.addEventListener('click', () => openListeningFromHome(false));
     chapterAudioPlayBtn?.addEventListener('click', toggleChapterAudioPlayback);
     chapterAudioBack15Btn?.addEventListener('click', () => changeChapterFromPlayer(-1));
     chapterAudioForward15Btn?.addEventListener('click', () => changeChapterFromPlayer(1));
@@ -23507,6 +23747,7 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
         syncReaderPanelScrollLock();
       });
     });
+    chapterAudioCloseBtn?.addEventListener('click', closeListeningMiniPlayer);
     chapterAudioVoiceBtn?.addEventListener('click', toggleChapterAudioMuted);
     chapterAudioProgress?.addEventListener('input', () => {
       const percent = (Number(chapterAudioProgress.value) || 0) / 1000;
@@ -23686,6 +23927,14 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
       });
     });
 
+    readerAudioSpeedRange?.addEventListener('input', (event) => {
+      const nextRate = Number(event.target.value) || 1;
+      runWithoutReaderScrollJump(() => setChapterAudioRate(nextRate));
+      if(readerAudioSpeedCurrent){
+        readerAudioSpeedCurrent.textContent = formatChapterAudioRate(nextRate);
+      }
+    });
+
     readerSettingResetBtn?.addEventListener('click', () => {
       changeReaderVisualSetting(() => {
         readerFontSize = READER_FONT_DEFAULT;
@@ -23699,6 +23948,8 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
           localStorage.setItem(LEGACY_DARK_STORAGE_KEY, '0');
         }catch(error){}
       });
+      runWithoutReaderScrollJump(() => setChapterAudioRate(1));
+      updateSettingsPanelUI();
     });
 
     window.addEventListener('resize', fitDetailHeaderTitle);
@@ -23784,6 +24035,7 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
         var shell = document.getElementById('readerShell');
         var readerPage = document.getElementById('readerPage');
         var player = document.getElementById('chapterAudioPlayer');
+        try{ localStorage.setItem('tdn_chapter_audio_player_enabled', '1'); }catch(error){}
         if(!shell || !readerPage || !player) return;
 
         if(player.parentElement !== document.body){
@@ -23792,10 +24044,14 @@ body.reader-dark #adminEditStorySpace .admin-edit-chapter-delete-btn{background:
 
         function syncPlayerState(){
           var audioEnabled = true;
+          var state = null;
           try{ audioEnabled = localStorage.getItem('tdn_chapter_audio_player_enabled') !== '0'; }catch(error){}
-          var active = audioEnabled && shell.classList.contains('reading-mode') && readerPage.hidden === false;
+          try{ state = JSON.parse(localStorage.getItem('tdn_listening_state') || 'null'); }catch(error){}
+          var hasListening = !!(state && (state.audioStarted || Number(state.current) > 0));
+          var active = audioEnabled && hasListening;
           document.body.classList.toggle('tdn-audio-player-off', !audioEnabled);
           document.body.classList.toggle('chapter-player-active', active);
+          player.hidden = !active;
           player.setAttribute('aria-hidden', active ? 'false' : 'true');
           if(!active){
             player.classList.remove('player-reveal-prep');
@@ -31349,149 +31605,154 @@ background:transparent !important;
 color:inherit !important;
 box-shadow:none !important;
 }</style>
-<script id="remove-audio-safe-final-script">(function(){
-  if(window.__removeAudioSafeFinal) return;
-  window.__removeAudioSafeFinal = true;
 
-  var NOTICE = 'Chức năng nghe sẽ được cập nhật sớm.';
 
-  function $(id){ return document.getElementById(id); }
-
-  function toast(){
-    try{
-      var oldFloating = document.querySelector('.audio-coming-toast');
-      if(oldFloating) oldFloating.remove();
-    }catch(error){}
-    try{
-      var hero = document.querySelector('.reader-chapter-hero');
-      var actions = document.querySelector('.reader-hero-actions');
-      if(!hero || !actions) return;
-      var el = document.getElementById('readerListenComingSoonNote');
-      if(!el){
-        el = document.createElement('div');
-        el.id = 'readerListenComingSoonNote';
-        el.setAttribute('role', 'status');
-        el.setAttribute('aria-live', 'polite');
-        el.style.cssText = 'display:none;margin:0 auto 12px;max-width:min(92vw,340px);padding:10px 14px;border-radius:14px;background:rgba(255,255,255,.96);border:1px solid rgba(93,165,158,.30);box-shadow:0 10px 26px rgba(93,165,158,.16);color:#3b706b;font:700 14px/1.4 Georgia,"Times New Roman",serif;text-align:center;';
-        actions.parentNode.insertBefore(el, actions);
-      }
-      el.textContent = NOTICE;
-      el.style.display = 'block';
-      el.style.opacity = '1';
-      clearTimeout(el.__hideTimer);
-      el.__hideTimer = setTimeout(function(){
-        try{ el.style.display = 'none'; }catch(error){}
-      }, 1800);
-      try{ el.scrollIntoView({block:'nearest', inline:'nearest'}); }catch(error){}
-    }catch(error){}
+<style id="tdn-global-mini-listen-player-style">
+/* Mini player nghe truyện toàn cục: nổi trên mọi giao diện, chỉ mất khi bấm X. */
+#homeListeningBar{display:none!important;}
+body #chapterAudioPlayer[hidden]{display:none!important;}
+body.chapter-player-active #chapterAudioPlayer{
+  position:fixed!important;
+  left:50%!important;
+  top:calc(92px + env(safe-area-inset-top,0px))!important;
+  right:auto!important;
+  bottom:auto!important;
+  transform:translateX(-50%)!important;
+  z-index:2147483000!important;
+  width:auto!important;
+  min-width:0!important;
+  max-width:calc(100vw - 34px)!important;
+  min-height:0!important;
+  height:58px!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  padding:0 16px!important;
+  border-radius:999px!important;
+  background:rgba(255,255,255,.88)!important;
+  border:2px solid rgba(58,178,82,.86)!important;
+  box-shadow:0 12px 34px rgba(0,0,0,.20), inset 0 1px 0 rgba(255,255,255,.84)!important;
+  color:#171717!important;
+  backdrop-filter:blur(14px) saturate(1.08)!important;
+  -webkit-backdrop-filter:blur(14px) saturate(1.08)!important;
+  overflow:visible!important;
+  pointer-events:auto!important;
+}
+body.chapter-player-active #chapterAudioPlayer .chapter-player-top,
+body.chapter-player-active #chapterAudioPlayer .chapter-player-progress-wrap,
+body.chapter-player-active #chapterAudioPlayer #chapterAudioListBtn,
+body.chapter-player-active #chapterAudioPlayer #chapterAudioSettingsBtn,
+body.chapter-player-active #chapterAudioPlayer #chapterAudioPrevBtn,
+body.chapter-player-active #chapterAudioPlayer #chapterAudioNextBtn{
+  display:none!important;
+}
+body.chapter-player-active #chapterAudioPlayer .chapter-player-controls{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:22px!important;
+  width:auto!important;
+  max-width:none!important;
+  margin:0!important;
+  padding:0!important;
+}
+body.chapter-player-active #chapterAudioPlayer #chapterAudioBack15Btn,
+body.chapter-player-active #chapterAudioPlayer #chapterAudioForward15Btn,
+body.chapter-player-active #chapterAudioPlayer #chapterAudioCloseBtn,
+body.chapter-player-active #chapterAudioPlayer #chapterAudioPlayBtn{
+  margin:0!important;
+  padding:0!important;
+  border:0!important;
+  background:transparent!important;
+  box-shadow:none!important;
+  color:#181818!important;
+  display:grid!important;
+  place-items:center!important;
+  min-width:0!important;
+  transform:none!important;
+  opacity:1!important;
+  -webkit-tap-highlight-color:transparent!important;
+}
+body.chapter-player-active #chapterAudioPlayer #chapterAudioBack15Btn,
+body.chapter-player-active #chapterAudioPlayer #chapterAudioForward15Btn,
+body.chapter-player-active #chapterAudioPlayer #chapterAudioCloseBtn{
+  width:36px!important;
+  height:36px!important;
+  border-radius:50%!important;
+}
+body.chapter-player-active #chapterAudioPlayer #chapterAudioPlayBtn{
+  width:42px!important;
+  height:42px!important;
+  border-radius:50%!important;
+}
+body.chapter-player-active #chapterAudioPlayer #chapterAudioBack15Btn svg,
+body.chapter-player-active #chapterAudioPlayer #chapterAudioForward15Btn svg{
+  width:30px!important;
+  height:30px!important;
+  fill:currentColor!important;
+  stroke:currentColor!important;
+  stroke-width:1.4!important;
+}
+body.chapter-player-active #chapterAudioPlayer #chapterAudioPlayBtn svg{
+  width:28px!important;
+  height:28px!important;
+  fill:currentColor!important;
+  stroke:none!important;
+}
+body.chapter-player-active #chapterAudioPlayer #chapterAudioCloseBtn svg{
+  width:30px!important;
+  height:30px!important;
+  fill:none!important;
+  stroke:currentColor!important;
+  stroke-width:2.55!important;
+  stroke-linecap:round!important;
+  stroke-linejoin:round!important;
+}
+body.chapter-player-active #chapterAudioPlayer .chapter-play-btn .pause-icon{display:none!important;}
+body.chapter-player-active #chapterAudioPlayer.is-playing .chapter-play-btn .play-icon{display:none!important;}
+body.chapter-player-active #chapterAudioPlayer.is-playing .chapter-play-btn .pause-icon{display:block!important;}
+body.chapter-player-active #chapterAudioPlayer button:active{
+  transform:scale(.92)!important;
+}
+body.reader-dark.chapter-player-active #chapterAudioPlayer,
+body.reader-warm.chapter-player-active #chapterAudioPlayer{
+  background:rgba(255,255,255,.88)!important;
+  border-color:rgba(58,178,82,.88)!important;
+  color:#171717!important;
+}
+body.chapter-player-active .reader-shell.reading-mode .reader-body,
+body.chapter-player-active .chapter-reader .reader-body{
+  padding-bottom:var(--reader-bottom-safe,96px)!important;
+}
+body.chapter-player-active .chapter-popover,
+body.chapter-player-active .settings-panel{
+  bottom:76px!important;
+}
+@media (max-width:420px){
+  body.chapter-player-active #chapterAudioPlayer{
+    top:calc(86px + env(safe-area-inset-top,0px))!important;
+    height:54px!important;
+    padding:0 14px!important;
+    max-width:calc(100vw - 28px)!important;
   }
-
-  function stopAllAudio(){
-    try{ if(window.speechSynthesis) window.speechSynthesis.cancel(); }catch(error){}
-    try{
-      document.querySelectorAll('audio, video, #chapterBackgroundAudioKeepAlive').forEach(function(media){
-        try{ media.pause(); }catch(error){}
-        try{ media.removeAttribute('src'); }catch(error){}
-        try{ if(typeof media.load === 'function') media.load(); }catch(error){}
-      });
-    }catch(error){}
-    try{
-      localStorage.setItem('tdn_chapter_audio_player_enabled', '0');
-      localStorage.removeItem('tdn_listening_state');
-      localStorage.removeItem('truyenDichNgay.chapterAudioCollapsed');
-    }catch(error){}
-    if(document.body){
-      document.body.classList.remove('chapter-player-active','chapter-player-collapsed','tdn-player-manual-open','tdn-has-manual-listening');
-      document.body.classList.add('tdn-audio-player-off');
-    }
+  body.chapter-player-active #chapterAudioPlayer .chapter-player-controls{
+    gap:18px!important;
   }
-
-  function hideAudioUiOnce(){
-    try{
-      var home = $('homePage');
-      if(home) home.classList.remove('has-home-player');
-      ['homeListeningBar','chapterAudioPlayer','chapterSpeedPanel','chapterBackgroundAudioKeepAlive'].forEach(function(id){
-        var el = $(id);
-        if(el){
-          el.hidden = true;
-          el.setAttribute('aria-hidden','true');
-        }
-      });
-      document.querySelectorAll('.audio-current,.audio-spoken').forEach(function(node){
-        node.classList.remove('audio-current','audio-spoken');
-      });
-      var audioSetting = $('tdnSettingAudioPlayer');
-      if(audioSetting) audioSetting.checked = false;
-    }catch(error){}
+  body.chapter-player-active #chapterAudioPlayer #chapterAudioBack15Btn,
+  body.chapter-player-active #chapterAudioPlayer #chapterAudioForward15Btn,
+  body.chapter-player-active #chapterAudioPlayer #chapterAudioCloseBtn{
+    width:34px!important;
+    height:34px!important;
   }
-
-  function bindListenPlaceholder(){
-    var btn = $('readerListenBtn');
-    if(!btn) return;
-    if(btn.dataset.audioPlaceholderOnly === '1'){
-      var t0 = btn.querySelector('#readerListenText');
-      if(t0) t0.textContent = 'Nghe';
-      btn.classList.remove('is-playing');
-      return;
-    }
-
-    var clone = btn.cloneNode(true);
-    clone.dataset.audioPlaceholderOnly = '1';
-    clone.classList.remove('is-playing');
-    clone.setAttribute('aria-label', NOTICE);
-    clone.title = NOTICE;
-    var cloneText = clone.querySelector('#readerListenText');
-    if(cloneText) cloneText.textContent = 'Nghe';
-    clone.addEventListener('click', function(event){
-      event.preventDefault();
-      event.stopPropagation();
-      if(event.stopImmediatePropagation) event.stopImmediatePropagation();
-      stopAllAudio();
-      hideAudioUiOnce();
-      toast();
-    }, true);
-    btn.replaceWith(clone);
+  body.chapter-player-active #chapterAudioPlayer #chapterAudioPlayBtn{
+    width:40px!important;
+    height:40px!important;
   }
+}
+</style>
 
-  function boot(){
-    stopAllAudio();
-    hideAudioUiOnce();
-    bindListenPlaceholder();
-  }
+<!-- tdn: removed old audio-disable script; mini listen player is enabled -->
 
-  if(document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', boot, {once:true});
-  }else{
-    boot();
-  }
-  window.addEventListener('load', boot, {once:true});
-  window.addEventListener('pageshow', boot);
-  setTimeout(boot, 250);
-  setTimeout(boot, 1000);
-
-  document.addEventListener('click', function(event){
-    var target = event.target;
-    if(!target || !target.closest) return;
-    if(target.closest('#readerListenBtn')){
-      event.preventDefault();
-      event.stopPropagation();
-      if(event.stopImmediatePropagation) event.stopImmediatePropagation();
-      stopAllAudio();
-      hideAudioUiOnce();
-      bindListenPlaceholder();
-      toast();
-      return;
-    }
-    if(target.closest('#chapterAudioPlayer,#homeListeningBar,#chapterSpeedPanel,#chapterAudioSpeedBtn,#chapterAudioPlayBtn,#homeListeningPlayBtn,#tdnSettingAudioPlayer,#readerSelectionSpeakBtn')){
-      event.preventDefault();
-      event.stopPropagation();
-      if(event.stopImmediatePropagation) event.stopImmediatePropagation();
-      stopAllAudio();
-      hideAudioUiOnce();
-    }
-  }, true);
-})();
-</script>
 
 
 <style id="chapter-related-stories-bottom-patch">#detailChapterSection .detail-chapter-related-block{
@@ -44372,7 +44633,31 @@ html body:not(.reader-dark) #homePage .tdn-footer-brand{
   }else{
     purgeDeleteStoryUi();
   }
-  setInterval(purgeDeleteStoryUi, 800);
+  var tdnPurgeQueued = false;
+  function queuePurgeDeleteStoryUi(){
+    if(tdnPurgeQueued) return;
+    tdnPurgeQueued = true;
+    var run = function(){
+      tdnPurgeQueued = false;
+      purgeDeleteStoryUi();
+    };
+    if('requestIdleCallback' in window){
+      requestIdleCallback(run, {timeout:600});
+    }else{
+      setTimeout(run, 160);
+    }
+  }
+  try{
+    var adminRoot = document.getElementById('adminPage');
+    if(adminRoot){
+      new MutationObserver(queuePurgeDeleteStoryUi).observe(adminRoot, {
+        childList:true,
+        subtree:true,
+        attributes:true,
+        attributeFilter:['hidden','class','style']
+      });
+    }
+  }catch(error){}
 })();
 </script>
 
@@ -47742,6 +48027,529 @@ body.reader-dark #homePage .tdn-home-ranking-head .tdn-home-ranking-open{color:v
   document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'visible') boot(); });
 })();
 </script>
+
+
+
+<!-- TDN PATCH: global floating mini listen player v13 -->
+<style id="tdn-global-floating-mini-listen-v13-style">
+#homeListeningBar{display:none !important;}
+body #chapterAudioPlayer.tdn-modern-mini-player,
+body.chapter-player-active #chapterAudioPlayer.tdn-modern-mini-player,
+body.chapter-player-active #chapterAudioPlayer.tdn-modern-mini-player:not([hidden]){
+  display:none !important;
+  visibility:hidden !important;
+  opacity:0 !important;
+  pointer-events:none !important;
+}
+body.chapter-player-active .reader-shell.reading-mode .reader-body,
+body.chapter-player-active .chapter-reader .reader-body,
+body.chapter-player-active.chapter-player-collapsed .reader-shell.reading-mode .reader-body,
+body.chapter-player-active.chapter-player-collapsed .chapter-reader .reader-body{
+  padding-bottom:58px !important;
+}
+#tdnGlobalMiniListenPlayer{
+  position:fixed !important;
+  left:50% !important;
+  top:calc(88px + env(safe-area-inset-top,0px)) !important;
+  transform:translateX(-50%) !important;
+  z-index:2147483647 !important;
+  width:max-content !important;
+  max-width:calc(100vw - 18px) !important;
+  min-width:0 !important;
+  min-height:0 !important;
+  display:grid !important;
+  grid-template-columns:30px 1px 23px 34px 23px !important;
+  align-items:center !important;
+  justify-content:center !important;
+  gap:4px !important;
+  padding:4px 6px !important;
+  border-radius:999px !important;
+  background:rgba(255,255,255,.94) !important;
+  border:1px solid rgba(17,24,39,.07) !important;
+  box-shadow:0 8px 20px rgba(15,23,42,.12), inset 0 1px 0 rgba(255,255,255,.96) !important;
+  color:#111827 !important;
+  backdrop-filter:blur(14px) saturate(1.08) !important;
+  -webkit-backdrop-filter:blur(14px) saturate(1.08) !important;
+  pointer-events:auto !important;
+  opacity:1 !important;
+  visibility:visible !important;
+  box-sizing:border-box !important;
+  touch-action:none !important;
+  user-select:none !important;
+  -webkit-user-select:none !important;
+  -webkit-tap-highlight-color:transparent !important;
+  transition:opacity .18s ease, filter .18s ease, box-shadow .18s ease !important;
+}
+#tdnGlobalMiniListenPlayer[hidden]{
+  display:none !important;
+  visibility:hidden !important;
+  opacity:0 !important;
+}
+#tdnGlobalMiniListenPlayer.is-cover-only{
+  grid-template-columns:30px !important;
+  gap:0 !important;
+  padding:3px !important;
+  border-radius:999px !important;
+  width:max-content !important;
+}
+#tdnGlobalMiniListenPlayer.is-cover-only .tdn-mini-divider,
+#tdnGlobalMiniListenPlayer.is-cover-only .tdn-mini-prev,
+#tdnGlobalMiniListenPlayer.is-cover-only .tdn-mini-play,
+#tdnGlobalMiniListenPlayer.is-cover-only .tdn-mini-next{
+  display:none !important;
+}
+#tdnGlobalMiniListenPlayer.is-cover-only .tdn-mini-cover{
+  width:32px !important;
+  height:32px !important;
+  min-width:32px !important;
+  min-height:32px !important;
+}
+#tdnGlobalMiniListenPlayer.is-dragging{
+  box-shadow:0 14px 28px rgba(15,23,42,.18), inset 0 1px 0 rgba(255,255,255,.98) !important;
+  filter:saturate(1.03) !important;
+}
+#tdnGlobalMiniListenPlayer *,
+#tdnGlobalMiniListenPlayer *::before,
+#tdnGlobalMiniListenPlayer *::after,
+#tdnMiniDropZone,
+#tdnMiniDropZone *{
+  box-sizing:border-box !important;
+}
+#tdnGlobalMiniListenPlayer .tdn-mini-cover{
+  width:30px !important;
+  height:30px !important;
+  min-width:30px !important;
+  min-height:30px !important;
+  aspect-ratio:1 / 1 !important;
+  border-radius:50% !important;
+  border:1.5px solid #45b55b !important;
+  padding:1px !important;
+  margin:0 !important;
+  display:grid !important;
+  place-items:center !important;
+  overflow:hidden !important;
+  background:linear-gradient(135deg,#ffffff,#effaf1) !important;
+  box-shadow:0 3px 8px rgba(31,139,58,.12) !important;
+}
+#tdnGlobalMiniListenPlayer .tdn-mini-cover-img{
+  width:100% !important;
+  height:100% !important;
+  min-width:100% !important;
+  min-height:100% !important;
+  aspect-ratio:1 / 1 !important;
+  border-radius:50% !important;
+  clip-path:circle(50%) !important;
+  object-fit:cover !important;
+  object-position:center center !important;
+  display:block !important;
+  background:#eef2f7 !important;
+}
+#tdnGlobalMiniListenPlayer .tdn-mini-cover-img[hidden]{display:none !important;}
+#tdnGlobalMiniListenPlayer .tdn-mini-cover-fallback{
+  width:100% !important;
+  height:100% !important;
+  border-radius:50% !important;
+  display:grid !important;
+  place-items:center !important;
+  background:radial-gradient(circle at 35% 25%,#f7fff8,#d7f4dd 55%,#a6dfb4) !important;
+  color:#17692d !important;
+  font:900 9px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif !important;
+  letter-spacing:.02em !important;
+}
+#tdnGlobalMiniListenPlayer .tdn-mini-cover-fallback[hidden]{display:none !important;}
+#tdnGlobalMiniListenPlayer .tdn-mini-divider{
+  width:1px !important;
+  height:19px !important;
+  min-height:19px !important;
+  border-radius:99px !important;
+  background:rgba(17,24,39,.10) !important;
+  display:block !important;
+}
+#tdnGlobalMiniListenPlayer button{
+  appearance:none !important;
+  -webkit-appearance:none !important;
+  display:grid !important;
+  place-items:center !important;
+  margin:0 !important;
+  padding:0 !important;
+  border:0 !important;
+  outline:0 !important;
+  cursor:pointer !important;
+  -webkit-tap-highlight-color:transparent !important;
+  font:900 14px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif !important;
+  background:transparent !important;
+}
+#tdnGlobalMiniListenPlayer button:active{ transform:scale(.94) !important; }
+#tdnGlobalMiniListenPlayer button:disabled{
+  opacity:.32 !important;
+  cursor:not-allowed !important;
+  transform:none !important;
+}
+#tdnGlobalMiniListenPlayer .tdn-mini-btn{
+  width:23px !important;
+  height:23px !important;
+  min-width:23px !important;
+  min-height:23px !important;
+  border-radius:50% !important;
+  background:rgba(255,255,255,.78) !important;
+  color:#111827 !important;
+  box-shadow:inset 0 0 0 1px rgba(69,181,91,.10), 0 2px 6px rgba(15,23,42,.04) !important;
+}
+#tdnGlobalMiniListenPlayer .tdn-mini-play{
+  width:34px !important;
+  height:34px !important;
+  min-width:34px !important;
+  min-height:34px !important;
+  border-radius:50% !important;
+  background:linear-gradient(180deg,#73d566 0%,#43b654 56%,#2f9d46 100%) !important;
+  color:#fff !important;
+  box-shadow:0 0 0 4px rgba(67,182,84,.09), 0 6px 13px rgba(47,157,70,.18), inset 0 -1px 0 rgba(0,0,0,.06) !important;
+}
+#tdnGlobalMiniListenPlayer svg{
+  display:block !important;
+  width:13px !important;
+  height:13px !important;
+  fill:currentColor !important;
+  stroke:none !important;
+  pointer-events:none !important;
+}
+#tdnGlobalMiniListenPlayer .tdn-mini-play svg{
+  width:17px !important;
+  height:17px !important;
+}
+#tdnMiniDropZone{
+  position:fixed !important;
+  left:50% !important;
+  bottom:calc(80px + env(safe-area-inset-bottom,0px)) !important;
+  transform:translateX(-50%) scale(.88) !important;
+  z-index:2147483647 !important;
+  width:62px !important;
+  height:62px !important;
+  border-radius:20px !important;
+  display:grid !important;
+  place-items:center !important;
+  background:rgba(255,255,255,.98) !important;
+  border:2px solid rgba(239,68,68,.75) !important;
+  box-shadow:0 16px 30px rgba(239,68,68,.18), 0 10px 24px rgba(15,23,42,.10) !important;
+  opacity:0 !important;
+  visibility:hidden !important;
+  pointer-events:none !important;
+  transition:opacity .16s ease, transform .16s ease, border-color .16s ease, box-shadow .16s ease, background .16s ease !important;
+}
+#tdnMiniDropZone[hidden]{display:none !important;}
+#tdnMiniDropZone.is-visible{
+  opacity:1 !important;
+  visibility:visible !important;
+  transform:translateX(-50%) scale(1) !important;
+}
+#tdnMiniDropZone.is-active{
+  background:rgba(254,242,242,.99) !important;
+  border-color:#ef4444 !important;
+  box-shadow:0 18px 32px rgba(239,68,68,.24), 0 12px 26px rgba(15,23,42,.12) !important;
+  transform:translateX(-50%) scale(1.08) !important;
+}
+#tdnMiniDropZone .tdn-mini-drop-x{
+  display:grid !important;
+  place-items:center !important;
+  width:42px !important;
+  height:42px !important;
+  border-radius:14px !important;
+  background:linear-gradient(180deg,#fb7185,#ef4444) !important;
+  color:#fff !important;
+  font:900 26px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif !important;
+  box-shadow:0 8px 18px rgba(239,68,68,.24) !important;
+}
+body.reader-dark #tdnGlobalMiniListenPlayer,
+body.reader-warm #tdnGlobalMiniListenPlayer{
+  background:rgba(255,255,255,.94) !important;
+  border-color:rgba(255,255,255,.72) !important;
+  color:#111827 !important;
+}
+body.reader-dark #tdnGlobalMiniListenPlayer button,
+body.reader-warm #tdnGlobalMiniListenPlayer button{ color:inherit !important; }
+@media(max-width:420px){
+  #tdnGlobalMiniListenPlayer.is-cover-only{
+    grid-template-columns:28px !important;
+    padding:3px !important;
+  }
+  #tdnGlobalMiniListenPlayer.is-cover-only .tdn-mini-cover{
+    width:30px !important;
+    height:30px !important;
+    min-width:30px !important;
+    min-height:30px !important;
+  }
+  #tdnGlobalMiniListenPlayer{
+    top:calc(84px + env(safe-area-inset-top,0px)) !important;
+    max-width:calc(100vw - 16px) !important;
+    grid-template-columns:28px 1px 21px 32px 21px !important;
+    gap:3px !important;
+    padding:4px 5px !important;
+  }
+  #tdnGlobalMiniListenPlayer .tdn-mini-cover{width:28px !important;height:28px !important;min-width:28px !important;min-height:28px !important;border-width:1.5px !important;}
+  #tdnGlobalMiniListenPlayer .tdn-mini-btn{width:21px !important;height:21px !important;min-width:21px !important;min-height:21px !important;}
+  #tdnGlobalMiniListenPlayer .tdn-mini-play{width:32px !important;height:32px !important;min-width:32px !important;min-height:32px !important;}
+  #tdnGlobalMiniListenPlayer .tdn-mini-divider{height:18px !important;min-height:18px !important;}
+  #tdnGlobalMiniListenPlayer svg{width:12px !important;height:12px !important;}
+  #tdnGlobalMiniListenPlayer .tdn-mini-play svg{width:16px !important;height:16px !important;}
+  #tdnMiniDropZone{width:58px !important;height:58px !important;bottom:calc(76px + env(safe-area-inset-bottom,0px)) !important;}
+  #tdnMiniDropZone .tdn-mini-drop-x{width:39px !important;height:39px !important;font-size:24px !important;border-radius:13px !important;}
+}
+@media(max-width:350px){
+  #tdnGlobalMiniListenPlayer.is-cover-only{
+    grid-template-columns:26px !important;
+    padding:2px !important;
+  }
+  #tdnGlobalMiniListenPlayer.is-cover-only .tdn-mini-cover{
+    width:28px !important;
+    height:28px !important;
+    min-width:28px !important;
+    min-height:28px !important;
+  }
+  #tdnGlobalMiniListenPlayer{
+    grid-template-columns:26px 1px 20px 30px 20px !important;
+    gap:3px !important;
+    padding:3px 5px !important;
+  }
+  #tdnGlobalMiniListenPlayer .tdn-mini-cover{width:26px !important;height:26px !important;min-width:26px !important;min-height:26px !important;border-width:1px !important;}
+  #tdnGlobalMiniListenPlayer .tdn-mini-btn{width:20px !important;height:20px !important;min-width:20px !important;min-height:20px !important;}
+  #tdnGlobalMiniListenPlayer .tdn-mini-play{width:30px !important;height:30px !important;min-width:30px !important;min-height:30px !important;}
+  #tdnGlobalMiniListenPlayer svg{width:11px !important;height:11px !important;}
+  #tdnGlobalMiniListenPlayer .tdn-mini-play svg{width:15px !important;height:15px !important;}
+}
+</style>
+<script id="tdn-global-floating-mini-listen-v13-script">
+(function(){
+  'use strict';
+  var STATE_KEY = 'tdn_listening_state';
+  var POS_KEY = 'tdn_global_mini_player_pos_v4';
+  var COLLAPSE_KEY = 'tdn_global_mini_player_cover_only_v1';
+  var VISIBLE_KEY = 'tdn_global_mini_player_force_visible_v1';
+  var USER_CLOSED_KEY = 'tdn_global_mini_player_user_closed_v1';
+  var player = null;
+  var dropZone = null;
+  var lastClosedAt = 0;
+  var observerReady = false;
+  var suppressClicksUntil = 0;
+  var closeInProgress = false;
+  var drag = { active:false, moved:false, pointerId:null, startX:0, startY:0, baseLeft:0, baseTop:0 };
+  function byId(id){ return document.getElementById(id); }
+  function readState(){ try{ var raw = localStorage.getItem(STATE_KEY); if(!raw) return null; var data = JSON.parse(raw); return data && typeof data === 'object' ? data : null; }catch(error){ return null; } }
+  function readSavedPos(){ try{ var raw = localStorage.getItem(POS_KEY); if(!raw) return null; var data = JSON.parse(raw); if(!data || typeof data !== 'object') return null; if(!isFinite(data.left) || !isFinite(data.top)) return null; return {left:Number(data.left), top:Number(data.top)}; }catch(error){ return null; } }
+  function savePos(left, top){ try{ localStorage.setItem(POS_KEY, JSON.stringify({left:Math.round(left), top:Math.round(top)})); }catch(error){} }
+  function readCoverOnly(){ try{ return localStorage.getItem(COLLAPSE_KEY) === '1'; }catch(error){ return false; } }
+  function saveCoverOnly(value){ try{ localStorage.setItem(COLLAPSE_KEY, value ? '1' : '0'); }catch(error){} }
+  function applyCoverOnly(value){
+    var el = player || byId('tdnGlobalMiniListenPlayer');
+    if(!el) return;
+    el.classList.toggle('is-cover-only', !!value);
+    saveCoverOnly(!!value);
+    setTimeout(maybeClampAfterResize, 20);
+  }
+  function toggleCoverOnly(){ applyCoverOnly(!ensurePlayer().classList.contains('is-cover-only')); }
+  function forceVisibleOn(){ try{ localStorage.setItem(VISIBLE_KEY, '1'); }catch(error){} }
+  function forceVisibleOff(){ try{ localStorage.removeItem(VISIBLE_KEY); }catch(error){} }
+  function isForceVisible(){ try{ return localStorage.getItem(VISIBLE_KEY) === '1'; }catch(error){ return false; } }
+  function markUserClosed(){ try{ localStorage.setItem(USER_CLOSED_KEY, String(Date.now())); }catch(error){} }
+  function clearUserClosed(){ try{ localStorage.removeItem(USER_CLOSED_KEY); }catch(error){} }
+  function isUserClosed(){ try{ return !!localStorage.getItem(USER_CLOSED_KEY); }catch(error){ return false; } }
+  function hasStartedListening(){ var state = readState(); return !!(state && (state.audioStarted || Number(state.current) > 0 || Number(state.duration) > 0)); }
+  function oldPlayerActive(){ var old = byId('chapterAudioPlayer'); return !!(document.body.classList.contains('chapter-player-active') || document.body.classList.contains('tdn-has-manual-listening') || (old && old.hidden === false && old.getAttribute('aria-hidden') !== 'true')); }
+  function speechIsAlive(){ try{ return !!(window.speechSynthesis && (window.speechSynthesis.speaking || window.speechSynthesis.pending || window.speechSynthesis.paused)); }catch(error){ return false; } }
+  function shouldShow(){
+    if(isUserClosed()) return false;
+    if(Date.now() - lastClosedAt < 350) return false;
+    return !!(isForceVisible() || oldPlayerActive() || hasStartedListening() || speechIsAlive());
+  }
+  function makeFallbackLetters(text){ text = String(text || '').replace(/\s+/g, ' ').trim(); if(!text) return 'TĐ'; var words = text.split(' ').filter(Boolean).slice(0, 2); var letters = words.map(function(word){ return word.charAt(0).toUpperCase(); }).join(''); return letters || 'TĐ'; }
+  function closeMiniPlayer(){
+    if(closeInProgress) return;
+    closeInProgress = true;
+    lastClosedAt = Date.now();
+    markUserClosed();
+    forceVisibleOff();
+    try{ localStorage.removeItem(STATE_KEY); }catch(error){}
+    try{
+      var old = byId('chapterAudioPlayer');
+      if(old){
+        old.hidden = true;
+        old.setAttribute('aria-hidden','true');
+        old.classList.remove('is-playing','is-paused','player-collapsed','player-reveal-prep');
+      }
+    }catch(error){}
+    if(player){
+      player.hidden = true;
+      player.classList.remove('is-dragging');
+    }
+    hideDropZone();
+
+    /* Không click nút close cũ nữa, vì nó kéo theo nhiều observer/timer cũ dễ gây khựng.
+       Kéo vào ô X sẽ tự dừng giọng đọc và dọn trạng thái nhẹ hơn. */
+    requestAnimationFrame(function(){
+      try{ if(window.speechSynthesis) window.speechSynthesis.cancel(); }catch(error){}
+      try{
+        document.body.classList.remove('chapter-player-active','chapter-player-collapsed','tdn-player-manual-open','tdn-has-manual-listening');
+      }catch(error){}
+      setTimeout(function(){ closeInProgress = false; }, 250);
+    });
+  }
+  function ensureDropZone(){ if(dropZone && document.body.contains(dropZone)) return dropZone; dropZone = byId('tdnMiniDropZone'); if(!dropZone){ dropZone = document.createElement('div'); dropZone.id = 'tdnMiniDropZone'; dropZone.hidden = true; dropZone.setAttribute('aria-hidden', 'true'); dropZone.innerHTML = '<span class="tdn-mini-drop-x" aria-hidden="true">×</span>'; document.body.appendChild(dropZone);} return dropZone; }
+  function showDropZone(){ var zone = ensureDropZone(); zone.hidden = false; requestAnimationFrame(function(){ zone.classList.add('is-visible'); }); }
+  function hideDropZone(){ var zone = ensureDropZone(); zone.classList.remove('is-visible','is-active'); zone.hidden = true; }
+  function clampPosition(left, top){ var el = ensurePlayer(); var width = el.offsetWidth || 0; var height = el.offsetHeight || 0; var margin = 6; var maxLeft = Math.max(margin, window.innerWidth - width - margin); var maxTop = Math.max(margin, window.innerHeight - height - margin); return { left: Math.min(maxLeft, Math.max(margin, left)), top: Math.min(maxTop, Math.max(margin, top)) }; }
+  function applyAbsolutePosition(left, top, save){
+    var el = ensurePlayer();
+    var pos = clampPosition(left, top);
+    /* Các dòng CSS của mini player đang có !important, nên set style thường sẽ bị đè.
+       Phải setProperty(..., 'important') thì kéo mới đổi vị trí thật trên Android/content://. */
+    el.style.setProperty('left', pos.left + 'px', 'important');
+    el.style.setProperty('top', pos.top + 'px', 'important');
+    el.style.setProperty('right', 'auto', 'important');
+    el.style.setProperty('bottom', 'auto', 'important');
+    el.style.setProperty('transform', 'none', 'important');
+    if(save) savePos(pos.left, pos.top);
+  }
+  function applySavedPosition(){ var saved = readSavedPos(); if(saved) applyAbsolutePosition(saved.left, saved.top, false); }
+  function intersectsDropZone(){ var el = ensurePlayer(); var zone = ensureDropZone(); if(zone.hidden) return false; var a = el.getBoundingClientRect(); var b = zone.getBoundingClientRect(); var cx = a.left + (a.width / 2); var cy = a.top + (a.height / 2); var pad = 12; return cx >= (b.left - pad) && cx <= (b.right + pad) && cy >= (b.top - pad) && cy <= (b.bottom + pad); }
+  function updateDropZoneState(){ var zone = ensureDropZone(); zone.classList.toggle('is-active', intersectsDropZone()); }
+  function ensurePlayer(){ if(player && document.body.contains(player)) return player; player = byId('tdnGlobalMiniListenPlayer'); if(!player){ player = document.createElement('div'); player.id = 'tdnGlobalMiniListenPlayer'; player.setAttribute('role', 'group'); player.setAttribute('aria-label', 'Thanh nghe truyện mini'); player.hidden = true; player.innerHTML = '' + '<button class="tdn-mini-cover" type="button" aria-label="Mở truyện đang nghe" title="Mở truyện đang nghe">' + '<img class="tdn-mini-cover-img" alt="Ảnh bìa truyện đang nghe" loading="lazy" decoding="async" referrerpolicy="no-referrer" hidden>' + '<span class="tdn-mini-cover-fallback" aria-hidden="true">TĐ</span>' + '</button>' + '<span class="tdn-mini-divider" aria-hidden="true"></span>' + '<button class="tdn-mini-btn tdn-mini-prev" type="button" aria-label="Chương trước" title="Chương trước">' + '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 5h2v14H7z"></path><path d="M18 6 10 12l8 6V6Z"></path></svg>' + '</button>' + '<button class="tdn-mini-btn tdn-mini-play" type="button" aria-label="Phát hoặc tạm dừng" title="Phát hoặc tạm dừng">' + '<svg class="tdn-mini-play-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5.5v13l11-6.5-11-6.5Z"></path></svg>' + '</button>' + '<button class="tdn-mini-btn tdn-mini-next" type="button" aria-label="Chương tiếp theo" title="Chương tiếp theo">' + '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 5h2v14h-2z"></path><path d="M6 6l8 6-8 6V6Z"></path></svg>' + '</button>'; document.body.appendChild(player);} bindButtons(player); bindDrag(player); applySavedPosition(); applyCoverOnly(readCoverOnly()); ensureDropZone(); return player; }
+  function isDragSuppressed(){ return Date.now() < suppressClicksUntil; }
+  function bindButtons(el){ if(el.__tdnButtonsBound) return; el.__tdnButtonsBound = true; var cover = el.querySelector('.tdn-mini-cover'); var prev = el.querySelector('.tdn-mini-prev'); var play = el.querySelector('.tdn-mini-play'); var next = el.querySelector('.tdn-mini-next'); if(cover){ cover.addEventListener('click', function(event){ if(isDragSuppressed()) return; event.preventDefault(); toggleCoverOnly(); setTimeout(refresh, 90); }); } if(prev){ prev.addEventListener('click', function(event){ if(isDragSuppressed()) return; event.preventDefault(); var btn = byId('chapterAudioBack15Btn') || byId('chapterAudioPrevBtn') || byId('homeListeningPrevBtn'); if(btn && !btn.disabled) btn.click(); setTimeout(refresh, 90); setTimeout(refresh, 420); }); } if(play){ play.addEventListener('click', function(event){ if(isDragSuppressed()) return; event.preventDefault(); clearUserClosed(); forceVisibleOn(); var btn = byId('chapterAudioPlayBtn') || byId('homeListeningPlayBtn') || byId('readerListenBtn'); if(btn) btn.click(); setTimeout(refresh, 90); setTimeout(refresh, 420); }); } if(next){ next.addEventListener('click', function(event){ if(isDragSuppressed()) return; event.preventDefault(); var btn = byId('chapterAudioForward15Btn') || byId('chapterAudioNextBtn') || byId('homeListeningNextBtn'); if(btn && !btn.disabled) btn.click(); setTimeout(refresh, 90); setTimeout(refresh, 420); }); } }
+  function getPoint(event){
+    if(event && event.touches && event.touches.length) return event.touches[0];
+    if(event && event.changedTouches && event.changedTouches.length) return event.changedTouches[0];
+    return event;
+  }
+  function startDrag(event){
+    if(closeInProgress || drag.active) return;
+    if(event && event.type === 'pointerdown' && event.pointerType === 'mouse' && event.button !== 0) return;
+    if(!shouldShow()) return;
+    var p = getPoint(event);
+    if(!p) return;
+    drag.active = true;
+    drag.moved = false;
+    drag.pointerId = event && event.pointerId != null ? event.pointerId : 'touch';
+    drag.startX = p.clientX;
+    drag.startY = p.clientY;
+    var rect = ensurePlayer().getBoundingClientRect();
+    drag.baseLeft = rect.left;
+    drag.baseTop = rect.top;
+
+    var isPointer = !!(event && event.type === 'pointerdown');
+    if(isPointer && player.setPointerCapture){
+      try{ player.setPointerCapture(event.pointerId); }catch(error){}
+    }
+    if(isPointer){
+      window.addEventListener('pointermove', onDragMove, {capture:true, passive:false});
+      window.addEventListener('pointerup', finishDrag, {capture:true, passive:false});
+      window.addEventListener('pointercancel', finishDrag, {capture:true, passive:false});
+    }else{
+      window.addEventListener('touchmove', onDragMove, {capture:true, passive:false});
+      window.addEventListener('touchend', finishDrag, {capture:true, passive:false});
+      window.addEventListener('touchcancel', finishDrag, {capture:true, passive:false});
+    }
+  }
+  function onDragMove(event){
+    if(!drag.active) return;
+    if(event && event.type && event.type.indexOf('pointer') === 0 && event.pointerId !== drag.pointerId) return;
+    var p = getPoint(event);
+    if(!p) return;
+    var dx = p.clientX - drag.startX;
+    var dy = p.clientY - drag.startY;
+    if(!drag.moved){
+      if(Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+      drag.moved = true;
+      player.classList.add('is-dragging');
+      showDropZone();
+    }
+    applyAbsolutePosition(drag.baseLeft + dx, drag.baseTop + dy, false);
+    updateDropZoneState();
+    if(event && event.cancelable) event.preventDefault();
+  }
+  function finishDrag(event){
+    if(!drag.active) return;
+    if(event && event.type && event.type.indexOf('pointer') === 0 && event.pointerId !== drag.pointerId) return;
+    var dropped = drag.moved && intersectsDropZone();
+    if(player && player.releasePointerCapture && drag.pointerId != null && drag.pointerId !== 'touch'){
+      try{ player.releasePointerCapture(drag.pointerId); }catch(error){}
+    }
+    window.removeEventListener('pointermove', onDragMove, true);
+    window.removeEventListener('pointerup', finishDrag, true);
+    window.removeEventListener('pointercancel', finishDrag, true);
+    window.removeEventListener('touchmove', onDragMove, true);
+    window.removeEventListener('touchend', finishDrag, true);
+    window.removeEventListener('touchcancel', finishDrag, true);
+    if(drag.moved){
+      suppressClicksUntil = Date.now() + 450;
+      player.classList.remove('is-dragging');
+      if(dropped){
+        closeMiniPlayer();
+      }else{
+        var rect = player.getBoundingClientRect();
+        savePos(rect.left, rect.top);
+      }
+      if(event && event.cancelable) event.preventDefault();
+    }
+    hideDropZone();
+    drag.active = false;
+    drag.moved = false;
+    drag.pointerId = null;
+  }
+  function bindDrag(el){
+    if(el.__tdnDragBound) return;
+    el.__tdnDragBound = true;
+    if(window.PointerEvent){
+      el.addEventListener('pointerdown', startDrag, {passive:false});
+    }else{
+      el.addEventListener('touchstart', startDrag, {passive:false});
+    }
+  }
+  function isPlayingNow(){ var old = byId('chapterAudioPlayer'); if(old && old.classList.contains('is-playing')) return true; var home = byId('homeListeningBar'); if(home && home.classList.contains('is-speaking')) return true; try{ if(window.speechSynthesis && window.speechSynthesis.speaking && !window.speechSynthesis.paused) return true; }catch(error){} return false; }
+  function syncCover(el){ var img = el.querySelector('.tdn-mini-cover-img'); var fb = el.querySelector('.tdn-mini-cover-fallback'); var srcImg = byId('chapterMiniCoverImg'); var srcFb = byId('chapterMiniCoverFallback'); var titleNode = byId('homeListeningTitle') || byId('readerStoryName') || byId('brandTitleText'); var title = titleNode ? (titleNode.textContent || titleNode.innerText || '') : ''; var src = ''; try{ if(srcImg && !srcImg.hidden && srcImg.getAttribute('src')) src = srcImg.currentSrc || srcImg.src || srcImg.getAttribute('src') || ''; }catch(error){} if(img){ if(src){ if(img.src !== src) img.src = src; img.hidden = false; img.onerror = function(){ img.hidden = true; if(fb) fb.hidden = false; }; if(fb) fb.hidden = true; }else{ img.removeAttribute('src'); img.hidden = true; if(fb) fb.hidden = false; } } if(fb){ var txt = (srcFb && srcFb.textContent ? srcFb.textContent : '').trim() || makeFallbackLetters(title); fb.textContent = txt; if(src) fb.hidden = true; } var cover = el.querySelector('.tdn-mini-cover'); if(cover){ var label = title ? ('Mở ' + title) : 'Mở truyện đang nghe'; cover.title = label; cover.setAttribute('aria-label', label); } }
+  function syncButtons(el){ var playing = isPlayingNow(); var play = el.querySelector('.tdn-mini-play'); if(play){ play.innerHTML = playing ? '<svg class="tdn-mini-pause-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 5h4v14H7zM13 5h4v14h-4z"></path></svg>' : '<svg class="tdn-mini-play-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5.5v13l11-6.5-11-6.5Z"></path></svg>'; play.setAttribute('aria-label', playing ? 'Tạm dừng nghe' : 'Nghe tiếp'); play.title = playing ? 'Tạm dừng nghe' : 'Nghe tiếp'; } var prev = el.querySelector('.tdn-mini-prev'); var next = el.querySelector('.tdn-mini-next'); var oldPrev = byId('chapterAudioBack15Btn') || byId('chapterAudioPrevBtn') || byId('homeListeningPrevBtn'); var oldNext = byId('chapterAudioForward15Btn') || byId('chapterAudioNextBtn') || byId('homeListeningNextBtn'); if(prev && oldPrev) prev.disabled = !!oldPrev.disabled; if(next && oldNext) next.disabled = !!oldNext.disabled; }
+  function refresh(){
+    if(closeInProgress || drag.active) return;
+    var el = ensurePlayer();
+    var show = shouldShow();
+    el.hidden = !show;
+    if(!show){ hideDropZone(); return; }
+    forceVisibleOn();
+    syncCover(el);
+    syncButtons(el);
+  }
+  function maybeClampAfterResize(){ if(!player || player.hidden) return; if(player.style.transform === 'none'){ var rect = player.getBoundingClientRect(); applyAbsolutePosition(rect.left, rect.top, true); } }
+  function setupObservers(){ if(observerReady) return; observerReady = true; try{ var old = byId('chapterAudioPlayer'); if(old) new MutationObserver(refresh).observe(old, {attributes:true, subtree:true, childList:true, attributeFilter:['hidden','aria-hidden','class','src']}); }catch(error){} try{ new MutationObserver(refresh).observe(document.body, {attributes:true, childList:true, subtree:false, attributeFilter:['class']}); }catch(error){} }
+  function boot(){ ensurePlayer(); setupObservers(); refresh(); }
+  document.addEventListener('click', function(event){ if(Date.now() < suppressClicksUntil){ event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation(); return false; } var target = event.target; if(!target || !target.closest) return; if(target.closest('#readerListenBtn,#chapterAudioPlayBtn,#homeListeningPlayBtn')){
+      clearUserClosed();
+      forceVisibleOn();
+      setTimeout(refresh, 70);
+      setTimeout(refresh, 320);
+      setTimeout(refresh, 900);
+    }else if(target.closest('#chapterAudioBack15Btn,#chapterAudioForward15Btn,#chapterAudioPrevBtn,#chapterAudioNextBtn,#homeListeningPrevBtn,#homeListeningNextBtn,#chapterMiniCoverBtn,#homeListeningInfoBtn')){
+      if(!isUserClosed()) forceVisibleOn();
+      setTimeout(refresh, 70);
+      setTimeout(refresh, 320);
+      setTimeout(refresh, 900);
+    }
+    if(target.closest('#chapterAudioCloseBtn')){
+      /* Nút close cũ không được phép làm mất mini player nữa.
+         Chỉ kéo mini vào ô đỏ X mới gọi closeMiniPlayer(). */
+      if(!isUserClosed()) forceVisibleOn();
+      setTimeout(refresh, 70);
+      setTimeout(refresh, 320);
+    } }, true);
+  window.addEventListener('storage', function(event){ if(event.key === STATE_KEY || event.key === POS_KEY || event.key === USER_CLOSED_KEY) refresh(); });
+  window.addEventListener('pageshow', function(){ setTimeout(refresh, 80); });
+  window.addEventListener('resize', function(){ setTimeout(maybeClampAfterResize, 80); });
+  window.addEventListener('orientationchange', function(){ setTimeout(maybeClampAfterResize, 120); });
+  document.addEventListener('visibilitychange', function(){ if(document.visibilityState === 'visible') setTimeout(refresh, 80); });
+  document.addEventListener('DOMContentLoaded', boot, {once:true});
+  if(document.readyState !== 'loading') boot();
+  /* Bỏ timer refresh 650ms chạy nền mãi mãi.
+     Mini player giờ cập nhật theo sự kiện click/storage/pageshow/visibility/resize. */
+})();
+</script>
+<!-- /TDN PATCH: global floating mini listen player v13 -->
 
 </body>
 </html>
