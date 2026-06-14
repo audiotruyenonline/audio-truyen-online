@@ -11979,7 +11979,7 @@ body.reader-dark .reader-audio-speed-value{
         <b>Tốc độ nghe</b>
         <div class="reader-audio-speed-group" aria-label="Chỉnh tốc độ phát audio">
           <div class="reader-audio-speed-slider-row">
-            <input type="range" class="reader-audio-speed-range" id="readerAudioSpeedRange" min="0.75" max="2" step="0.05" value="1" aria-label="Thanh kéo tốc độ nghe">
+            <input type="range" class="reader-audio-speed-range" id="readerAudioSpeedRange" min="0.75" max="5" step="0.05" value="1" aria-label="Thanh kéo tốc độ nghe">
             <div class="reader-audio-speed-value" id="readerAudioSpeedCurrent">1x</div>
           </div>
         </div>
@@ -13033,7 +13033,7 @@ body.reader-dark .reader-audio-speed-value{
     const TDN_AUDIO_RATE_KEY = 'tdn_chapter_audio_rate_v1';
     try{
       const savedRate = Number(localStorage.getItem(TDN_AUDIO_RATE_KEY));
-      if(Number.isFinite(savedRate) && savedRate > 0) chapterAudioRate = savedRate;
+      if(Number.isFinite(savedRate) && savedRate > 0) chapterAudioRate = Math.max(1, Math.min(5, savedRate));
     }catch(error){}
     let chapterAudioMuted = false;
     let chapterAudioCurrent = 0;
@@ -13303,7 +13303,7 @@ body.reader-dark .reader-audio-speed-value{
           ${story.moon ? '<span class="moon" aria-hidden="true"></span>' : ''}
           <div class="cover-title">${escapeHtml(shortText)}</div>
         </div>
-        <p class="story-author"><span class="story-chapter-count">${formatFullNumber(chapterCount)}</span> <span class="story-chapter-label">chương</span></p>
+        <p class="story-author home-story-chapter-line"><span class="story-chapter-count">${formatFullNumber(chapterCount)}</span> <span class="story-chapter-label">Chương</span></p>
         <h3 class="story-name">${escapeHtml(titleText)}</h3>
         <button class="read-btn" type="button">Đọc truyện</button>
       `;
@@ -19805,6 +19805,37 @@ body.reader-dark .reader-audio-speed-value{
       return /[.!?。！？…]/.test(String(char || ''));
     }
 
+    function isChapterTtsAlphaNumericChar(char){
+      return /[0-9A-Za-zÀ-ỹ]/.test(String(char || ''));
+    }
+
+    function isChapterTtsRepeatNoiseChar(char){
+      const value = String(char || '');
+      if(!value || /\s/.test(value)) return false;
+      if(isChapterTtsAlphaNumericChar(value)) return false;
+      return true;
+    }
+
+    function getChapterTtsRepeatedNoiseRunLength(source, index){
+      const char = source[index];
+      if(!isChapterTtsRepeatNoiseChar(char)) return 0;
+      let end = index + 1;
+      while(end < source.length && source[end] === char) end += 1;
+      const length = end - index;
+      // Các dòng/ký tự trang trí như .......... hoặc ---------- làm TTS Android/Cốc Cốc
+      // đọc thành "dấu chấm, dấu gạch". Bỏ cả cụm lặp này khỏi văn bản đưa vào TTS.
+      if(length >= 3) return length;
+      if(char === '…' && length >= 2) return length;
+      return 0;
+    }
+
+    function appendChapterTtsSafeSpace(chars, map, absoluteIndex){
+      if(chars.length && !/\s/.test(chars[chars.length - 1])){
+        chars.push(' ');
+        map.push(absoluteIndex);
+      }
+    }
+
     function isChapterTtsRedundantAfterSentencePunctuation(char, previousOutputChar){
       const current = String(char || '');
       const previous = String(previousOutputChar || '');
@@ -19822,6 +19853,12 @@ body.reader-dark .reader-audio-speed-value{
       const map = [];
       for(let i = 0; i < source.length; i += 1){
         const char = source[i];
+        const repeatedNoiseLength = getChapterTtsRepeatedNoiseRunLength(source, i);
+        if(repeatedNoiseLength){
+          appendChapterTtsSafeSpace(chars, map, absoluteStart + i);
+          i += repeatedNoiseLength - 1;
+          continue;
+        }
         // Một số engine TTS Android/Cốc Cốc đọc dấu ngoặc kép thành tiếng riêng
         // sau dấu câu, ví dụ: “nội dung.” -> đọc thêm "dấu ngoặc kép".
         // Bỏ riêng ký tự ngoặc/nháy khỏi văn bản đưa vào TTS, nhưng vẫn giữ
@@ -21188,7 +21225,7 @@ body.reader-dark .reader-audio-speed-value{
       });
 
       if(readerAudioSpeedRange){
-        readerAudioSpeedRange.value = String(Math.max(0.75, Math.min(2, Number(chapterAudioRate) || 1)));
+        readerAudioSpeedRange.value = String(Math.max(0.75, Math.min(5, Number(chapterAudioRate) || 1)));
       }
       if(readerAudioSpeedCurrent){
         readerAudioSpeedCurrent.textContent = formatChapterAudioRate(chapterAudioRate);
@@ -23542,7 +23579,7 @@ body.reader-dark .reader-audio-speed-value{
       if(!cleanText) return showToast('Đoạn chọn chỉ có dấu câu, không có chữ để đọc.');
       const utterance = new SpeechSynthesisUtterance(cleanText);
       utterance.lang = 'vi-VN';
-      utterance.rate = Math.max(0.8, Math.min(1.15, Number(chapterAudioRate) || 1));
+      utterance.rate = Math.max(CHAPTER_AUDIO_MIN_RATE, Math.min(CHAPTER_AUDIO_MAX_RATE, Number(chapterAudioRate) || 1));
       window.speechSynthesis.speak(utterance);
       showToast('Đang đọc đoạn đã chọn.');
     }
@@ -48480,6 +48517,76 @@ html.tdn-mini-fast-dragging #tdnMiniDropZone{
     width:28px !important;
     height:28px !important;
     font-size:18px !important;
+  }
+}
+</style>
+
+
+<script id="tdn-audio-speed-5x-final">
+(function(){
+  function applyAudioSpeed5x(){
+    try{
+      var ids = ['readerAudioSpeedRange','chapterAudioSpeedRange'];
+      ids.forEach(function(id){
+        var el = document.getElementById(id);
+        if(el){
+          el.max = '5';
+          if(Number(el.value) > 5) el.value = '5';
+        }
+      });
+    }catch(error){}
+  }
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', applyAudioSpeed5x, {once:true});
+  }else{
+    applyAudioSpeed5x();
+  }
+})();
+</script>
+
+<style id="tdn-home-card-chapter-count-final">
+/* Hiện số chương ngay phía trên tên truyện ở các card trang chủ */
+#homePage .story-card .story-author.home-story-chapter-line,
+#homePage .story-card .story-author{
+  display:block !important;
+  margin:5px 0 1px !important;
+  padding:0 !important;
+  height:auto !important;
+  min-height:0 !important;
+  max-height:none !important;
+  color:#6b7280 !important;
+  font-size:clamp(10px,2.55vw,12px) !important;
+  line-height:1.05 !important;
+  font-weight:760 !important;
+  letter-spacing:-.01em !important;
+  text-align:left !important;
+  white-space:nowrap !important;
+  overflow:hidden !important;
+  text-overflow:ellipsis !important;
+}
+#homePage .story-card .story-author .story-chapter-count,
+#homePage .story-card .story-author .story-chapter-label{
+  display:inline !important;
+}
+#homePage .story-card .story-name,
+#homePage .story-card.is-long-title .story-name{
+  margin-top:2px !important;
+}
+body.reader-dark #homePage .story-card .story-author.home-story-chapter-line,
+body.reader-dark #homePage .story-card .story-author{
+  color:#a7b0bf !important;
+}
+@media (max-width:560px){
+  #homePage .story-card .story-author.home-story-chapter-line,
+  #homePage .story-card .story-author{
+    margin-top:5px !important;
+    margin-bottom:1px !important;
+    font-size:clamp(10px,2.65vw,12px) !important;
+    line-height:1.05 !important;
+  }
+  #homePage .story-card .story-name,
+  #homePage .story-card.is-long-title .story-name{
+    margin-top:2px !important;
   }
 }
 </style>
